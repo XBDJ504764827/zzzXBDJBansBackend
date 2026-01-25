@@ -1,0 +1,35 @@
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use chrono::{DateTime, Utc};
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Ban {
+    pub id: i64,
+    pub name: String,
+    pub steam_id: String,
+    pub ip: String,
+    pub ban_type: String,
+    pub reason: Option<String>,
+    pub duration: String,
+    pub status: String,
+    pub admin_name: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateBanRequest {
+    pub name: String,
+    pub steam_id: String,
+    pub ip: String,
+    pub ban_type: String,
+    pub reason: Option<String>,
+    pub duration: String,
+    pub admin_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateBanRequest {
+    pub status: Option<String>,
+    pub reason: Option<String>,
+    pub duration: Option<String>,
+}
