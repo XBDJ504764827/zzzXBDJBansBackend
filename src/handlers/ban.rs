@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -7,6 +7,8 @@ use axum::{
 use std::sync::Arc;
 use crate::AppState;
 use crate::models::ban::{Ban, CreateBanRequest, UpdateBanRequest};
+use crate::handlers::auth::Claims;
+use crate::utils::log_admin_action;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -82,6 +84,7 @@ pub async fn check_ban(
 
 pub async fn create_ban(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<Claims>,
     Json(payload): Json<CreateBanRequest>,
 ) -> impl IntoResponse {
     let expires_at = calculate_expires_at(&payload.duration);
@@ -89,25 +92,35 @@ pub async fn create_ban(
     let result = sqlx::query(
         "INSERT INTO bans (name, steam_id, ip, ban_type, reason, duration, admin_name, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    .bind(payload.name)
-    .bind(payload.steam_id)
-    .bind(payload.ip)
-    .bind(payload.ban_type)
-    .bind(payload.reason)
+    .bind(&payload.name)
+    .bind(&payload.steam_id)
+    .bind(&payload.ip)
+    .bind(&payload.ban_type)
+    .bind(&payload.reason)
     .bind(&payload.duration)
-    .bind(payload.admin_name)
+    .bind(&payload.admin_name)
     .bind(expires_at)
     .execute(&state.db)
     .await;
 
     match result {
-        Ok(_) => (StatusCode::CREATED, Json("Ban created")).into_response(),
+        Ok(_) => {
+            let _ = log_admin_action(
+                &state.db, 
+                &user.sub, 
+                "create_ban", 
+                &format!("User: {}, SteamID: {}", payload.name, payload.steam_id), 
+                &format!("Reason: {}, Duration: {}", payload.reason.clone().unwrap_or_default(), payload.duration)
+            ).await;
+            (StatusCode::CREATED, Json("Ban created")).into_response()
+        },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
 pub async fn update_ban(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<Claims>,
     Path(id): Path<i64>,
     Json(payload): Json<UpdateBanRequest>,
 ) -> impl IntoResponse {
@@ -149,11 +162,20 @@ pub async fn update_ban(
             .execute(&state.db).await;
     }
 
+    let _ = log_admin_action(
+        &state.db,
+        &user.sub,
+        "update_ban",
+        &format!("BanID: {}", id),
+        "Updated ban details"
+    ).await;
+
     (StatusCode::OK, Json("Ban updated")).into_response()
 }
 
 pub async fn delete_ban(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<Claims>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
     // Soft delete usually via status update, but API requested delete.
@@ -163,7 +185,16 @@ pub async fn delete_ban(
         .await;
 
     match result {
-        Ok(_) => (StatusCode::OK, Json("Ban deleted")).into_response(),
+        Ok(_) => {
+            let _ = log_admin_action(
+                &state.db,
+                &user.sub,
+                "delete_ban",
+                &format!("BanID: {}", id),
+                "Deleted ban"
+            ).await;
+            (StatusCode::OK, Json("Ban deleted")).into_response()
+        },
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
