@@ -51,6 +51,12 @@ async fn main() {
         .route("/api/logs", get(handlers::log::list_logs).post(handlers::log::create_log))
         // Records
         .route("/api/records", get(handlers::record::list_records).post(handlers::record::create_record))
+        // Server Management
+        .route("/api/server-groups", get(handlers::server::list_server_groups).post(handlers::server::create_group))
+        .route("/api/server-groups/:id", axum::routing::delete(handlers::server::delete_group))
+        .route("/api/servers", axum::routing::post(handlers::server::create_server))
+        .route("/api/servers/:id", axum::routing::put(handlers::server::update_server).delete(handlers::server::delete_server))
+        .route("/api/servers/check", axum::routing::post(handlers::server::check_server_status))
         .route_layer(axum::middleware::from_fn(middleware::auth_middleware));
 
     let app = Router::new()
