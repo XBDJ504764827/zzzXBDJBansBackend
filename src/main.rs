@@ -11,6 +11,8 @@ use tower_http::cors::CorsLayer;
 mod db;
 mod handlers;
 mod models;
+mod middleware;
+mod utils;
 
 // Application State
 pub struct AppState {
@@ -35,10 +37,7 @@ async fn main() {
 
     let state = Arc::new(AppState { db: pool });
 
-    let app = Router::new()
-        .route("/", get(root))
-        // Auth
-        .route("/api/auth/login", axum::routing::post(handlers::auth::login))
+    let protected_routes = Router::new()
         .route("/api/auth/me", get(handlers::auth::me))
         .route("/api/auth/logout", axum::routing::post(handlers::auth::logout))
         // Admins
@@ -52,7 +51,12 @@ async fn main() {
         .route("/api/logs", get(handlers::log::list_logs).post(handlers::log::create_log))
         // Records
         .route("/api/records", get(handlers::record::list_records).post(handlers::record::create_record))
-        
+        .route_layer(axum::middleware::from_fn(middleware::auth_middleware));
+
+    let app = Router::new()
+        .route("/", get(root))
+        .route("/api/auth/login", axum::routing::post(handlers::auth::login))
+        .merge(protected_routes)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);

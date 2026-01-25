@@ -14,6 +14,7 @@ pub struct Ban {
     pub status: String,
     pub admin_name: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,7 +30,11 @@ pub struct CreateBanRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateBanRequest {
-    pub status: Option<String>,
+    pub name: Option<String>,
+    pub steam_id: Option<String>,
+    pub ip: Option<String>,
+    pub ban_type: Option<String>,
     pub reason: Option<String>,
     pub duration: Option<String>,
+    pub status: Option<String>,
 }

@@ -1,0 +1,1 @@
+ALTER TABLE bans ADD COLUMN expires_at TIMESTAMP NULL;
