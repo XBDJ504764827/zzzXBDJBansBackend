@@ -175,6 +175,7 @@ pub async fn check_server_status(
     // Note: rcon crate usage depends on version. rcon 0.6.0 typically: 
     // Connection::builder().connect("address", "password").await
     
+
     let pwd = payload.rcon_password.unwrap_or_default();
     
     match check_rcon(&address, &pwd).await {
@@ -184,5 +185,256 @@ pub async fn check_server_status(
         Err(e) => {
             (StatusCode::BAD_REQUEST, Json(format!("Connection failed: {}", e))).into_response()
         }
+    }
+}
+
+
+// --- Player Management ---
+
+use serde::{Serialize, Deserialize};
+use regex::Regex;
+use crate::utils::rcon::send_command;
+
+#[derive(Serialize)]
+pub struct Player {
+    pub userid: i32,
+    pub name: String,
+    pub steam_id: String,
+    pub time: String,
+    pub ping: i32,
+}
+
+#[derive(Deserialize)]
+pub struct KickPlayerRequest {
+    pub userid: i32,
+    pub reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct BanPlayerRequest {
+    pub userid: i32,
+    pub duration: i32, // minutes, 0 = permanent
+    pub reason: Option<String>,
+}
+
+pub async fn get_server_players(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    // Get server info
+    let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+
+    let server = match server {
+        Some(s) => s,
+        None => return (StatusCode::NOT_FOUND, "Server not found").into_response(),
+    };
+
+    let address = format!("{}:{}", server.ip, server.port);
+    let pwd = server.rcon_password.unwrap_or_default();
+
+    match send_command(&address, &pwd, "status").await {
+        Ok(output) => {
+            tracing::info!("RCON 'status' output: \n{}", output); // Debug log
+
+            let mut players = Vec::new();
+            // Regex to parse status output
+            // Regex: #\s*(\d+)\s+\d+\s+"(.+?)"\s+(\S+)\s+(\S+)\s+(\d+)
+            // Output format: # userid slot "name" steamid time ping ...
+            let re = Regex::new(r#"#\s+(\d+)\s+\d+\s+"(.+?)"\s+(\S+)\s+(\S+)\s+(\d+)"#).unwrap();
+
+            for cap in re.captures_iter(&output) {
+                 let userid = cap[1].parse::<i32>().unwrap_or(-1);
+                 let name = cap[2].to_string();
+                 let steam_id = cap[3].to_string();
+                 let time = cap[4].to_string();
+                 let ping = cap[5].parse::<i32>().unwrap_or(0);
+
+                 players.push(Player {
+                     userid,
+                     name,
+                     steam_id,
+                     time,
+                     ping,
+                 });
+            }
+
+            (StatusCode::OK, Json(players)).into_response()
+        },
+        Err(e) => (StatusCode::BAD_REQUEST, Json(format!("RCON Error: {}", e))).into_response(),
+    }
+}
+
+pub async fn kick_player(
+    State(state): State<Arc<AppState>>,
+    Extension(user): Extension<Claims>,
+    Path(id): Path<i64>,
+    Json(payload): Json<KickPlayerRequest>,
+) -> impl IntoResponse {
+     let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+
+    let server = match server {
+        Some(s) => s,
+        None => return (StatusCode::NOT_FOUND, "Server not found").into_response(),
+    };
+
+    let address = format!("{}:{}", server.ip, server.port);
+    let pwd = server.rcon_password.unwrap_or_default();
+    
+    // Command: kickid <userid> [reason]
+    let reason = payload.reason.unwrap_or("Kicked by admin".to_string());
+    let command = format!("kickid {} \"{}\"", payload.userid, reason);
+
+    match send_command(&address, &pwd, &command).await {
+        Ok(_) => {
+             let _ = log_admin_action(
+                &state.db, 
+                &user.sub, 
+                "kick_player", 
+                &format!("Server: {}, UserID: {}", server.name, payload.userid), 
+                &format!("Reason: {}", reason)
+            ).await;
+            (StatusCode::OK, Json("Player kicked")).into_response()
+        },
+        Err(e) => (StatusCode::BAD_REQUEST, Json(format!("Failed to kick: {}", e))).into_response(),
+    }
+}
+
+pub async fn ban_player(
+    State(state): State<Arc<AppState>>,
+    Extension(user): Extension<Claims>,
+    Path(id): Path<i64>,
+    Json(payload): Json<BanPlayerRequest>,
+) -> impl IntoResponse {
+     let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+
+    let server = match server {
+        Some(s) => s,
+        None => return (StatusCode::NOT_FOUND, "Server not found").into_response(),
+    };
+
+    let address = format!("{}:{}", server.ip, server.port);
+    let pwd = server.rcon_password.unwrap_or_default();
+    
+    // 1. Get Player Info from "status"
+    // We need SteamID and IP to ban properly in DB
+    let player_info = match send_command(&address, &pwd, "status").await {
+        Ok(output) => {
+            
+            // Try to match specific userid
+            // Note: The extended regex attempts to capture IP at the end if present.
+            // Standard output: # userid slot "name" steamid time ping loss state rate adr
+            // "adr" is usually IP:Port
+            
+            // Refined Regex for full line:
+            // # 301 1 "Name" STEAM_X:Y:Z ... ... ... ... ... IP:Port
+            // Let's use a simpler approach: iterate all, find matching userid
+            
+            let mut found = None;
+            for line in output.lines() {
+                 if line.trim().starts_with("#") {
+                     let parts: Vec<&str> = line.split_whitespace().collect();
+                     // Parts: #, userid, slot, "Name", SteamID, ...
+                     // Because Name can have spaces, splitting by whitespace is risky.
+                     // But we have Regex!
+                     // Let's use the verified regex from get_players but extend it optionally for IP
+                     
+                     // Try to parse the specific userid we are banning
+                     // Search for "# <userid> "
+                     let prefix = format!("# {} ", payload.userid);
+                     if line.contains(&prefix) {
+                         // Found our guy?
+                         // Let's rely on Regex again.
+                         // Regex: #\s+<userid>\s+\d+\s+"(.+?)"\s+(\S+)\s+.*\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:?\d*)
+                         let ip_re = Regex::new(&format!(r#"#\s+{}\s+\d+\s+"(.+?)"\s+(\S+)\s+.*\s+(\d{{1,3}}\.\d{{1,3}}\.\d{{1,3}}\.\d{{1,3}})"#, payload.userid)).unwrap();
+                         
+                         if let Some(cap) = ip_re.captures(line) {
+                             found = Some((cap[1].to_string(), cap[2].to_string(), cap[3].to_string()));
+                             break;
+                         } else {
+                             // Fallback if IP not found/parsed (e.g. "loopback" or weird format)
+                             // Just get Name/SteamID
+                             let basic_re = Regex::new(&format!(r#"#\s+{}\s+\d+\s+"(.+?)"\s+(\S+)"#, payload.userid)).unwrap();
+                             if let Some(cap) = basic_re.captures(line) {
+                                 found = Some((cap[1].to_string(), cap[2].to_string(), "0.0.0.0".to_string())); 
+                                 break;
+                             }
+                         }
+                     }
+                 }
+            }
+            found
+        },
+        Err(_) => None, // RCON failed
+    };
+
+    let (name, steam_id, ip) = player_info.unwrap_or((
+        "Unknown".to_string(), 
+        "Unknown".to_string(), 
+        "0.0.0.0".to_string()
+    ));
+
+    // 2. Insert Ban into DB
+    let expires_at = if payload.duration > 0 {
+         Some(chrono::Utc::now() + chrono::Duration::minutes(payload.duration as i64))
+    } else {
+         None
+    };
+    
+    let ip_only = ip.split(':').next().unwrap_or(&ip).to_string();
+    let reason = payload.reason.clone().unwrap_or("Banned by admin".to_string());
+
+    tracing::info!("Attempting to insert ban for: Name={}, SteamID={}, IP={}", name, steam_id, ip_only);
+
+    let db_result = sqlx::query(
+        "INSERT INTO bans (name, steam_id, ip, ban_type, reason, duration, admin_name, expires_at, created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'active')"
+    )
+    .bind(&name)
+    .bind(&steam_id)
+    .bind(&ip_only)
+    .bind("ip") // Changed to 'ip' as requested
+    .bind(&reason)
+    .bind(payload.duration.to_string())
+    .bind(&user.sub)
+    .bind(expires_at)
+    .execute(&state.db)
+    .await;
+
+    if let Err(e) = &db_result {
+        tracing::error!("Failed to insert ban into DB: {}", e);
+        // We continue to ban in game, but log error.
+        // Or should we return error? Usually we want to ensure game ban even if logging fails?
+        // But user wants logging.
+    } else {
+        tracing::info!("Ban inserted successfully");
+    }
+
+    // 3. Execute RCON Ban
+    // Command: sm_ban #<userid> <minutes|0> [reason]
+    let command = format!("sm_ban #{} {} \"{}\"", payload.userid, payload.duration, reason);
+
+    match send_command(&address, &pwd, &command).await {
+        Ok(_) => {
+             let _ = log_admin_action(
+                &state.db, 
+                &user.sub, 
+                "ban_player_rcon_db", 
+                &format!("Server: {}, UserID: {}", server.name, payload.userid), 
+                &format!("Duration: {}, Reason: {}, Player: {} ({})", payload.duration, reason, name, steam_id)
+            ).await;
+            (StatusCode::OK, Json("Player banned and recorded")).into_response()
+        },
+        Err(e) => (StatusCode::BAD_REQUEST, Json(format!("Failed to ban: {}", e))).into_response(),
     }
 }

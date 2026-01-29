@@ -57,6 +57,10 @@ async fn main() {
         .route("/api/servers", axum::routing::post(handlers::server::create_server))
         .route("/api/servers/:id", axum::routing::put(handlers::server::update_server).delete(handlers::server::delete_server))
         .route("/api/servers/check", axum::routing::post(handlers::server::check_server_status))
+        // Player Management
+        .route("/api/servers/:id/players", get(handlers::server::get_server_players))
+        .route("/api/servers/:id/kick", axum::routing::post(handlers::server::kick_player))
+        .route("/api/servers/:id/ban", axum::routing::post(handlers::server::ban_player))
         .route_layer(axum::middleware::from_fn(middleware::auth_middleware));
 
     let app = Router::new()
