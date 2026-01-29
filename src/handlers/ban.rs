@@ -178,23 +178,100 @@ pub async fn delete_ban(
     Extension(user): Extension<Claims>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    // Soft delete usually via status update, but API requested delete.
+    tracing::info!("DELETE /api/bans/{} requested by user: {}, role: {}", id, user.sub, user.role);
+
+    // 1. Permission Check
+    if user.role != "super_admin" {
+        tracing::warn!("Permission denied for user {}", user.sub);
+        return (StatusCode::FORBIDDEN, Json("Only super admins can delete bans")).into_response();
+    }
+
+    // 2. Fetch Ban Details (for RCON unban)
+    // Removed unwrap_or(None) to see actual error if mapping fails
+    let ban_query = sqlx::query_as::<_, Ban>("SELECT * FROM bans WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await;
+
+    let ban = match ban_query {
+        Ok(Some(b)) => b,
+        Ok(None) => {
+             tracing::warn!("Ban ID {} not found in DB", id);
+             return (StatusCode::NOT_FOUND, "Ban not found").into_response();
+        },
+        Err(e) => {
+             tracing::error!("DB Error fetching ban {}: {}", id, e);
+             return (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)).into_response();
+        }
+    };
+
+    tracing::info!("Found ban record: {} (Steam: {}, IP: {})", ban.name, ban.steam_id, ban.ip);
+
+    // 3. Delete from DB first (for fast response)
+    tracing::info!("Deleting ban ID {} from DB", id);
     let result = sqlx::query("DELETE FROM bans WHERE id = ?")
         .bind(id)
         .execute(&state.db)
         .await;
 
     match result {
-        Ok(_) => {
+        Ok(res) => {
+            if res.rows_affected() == 0 {
+                tracing::warn!("DELETE executed but 0 rows affected for ID {}", id);
+            } else {
+                // 4. Spawn RCON Unban task (Fire-and-forget)
+                // Fetch servers inside the handler first to avoid lifetime issues or clone valid data
+                let servers_result = sqlx::query_as::<_, crate::models::server::Server>("SELECT * FROM servers")
+                    .fetch_all(&state.db)
+                    .await;
+
+                if let Ok(servers) = servers_result {
+                    let ban_clone = ban.clone(); // Ban struct needs simple Clone derive or manual clone
+                    // If Ban doesn't implement Clone, we might need to construct a lightweight struct or ensure it does.
+                    // Assuming Ban implements Clone (it normally derives FromRow, Debug, Serialize, Deserialize - let's check or just clone fields)
+                    // Let's manually reconstruct or assume Clone if easy. 
+                    // Actually, let's just use the data we need: steam_id and ip.
+                    let steam_id = ban.steam_id.clone();
+                    let ip = ban.ip.clone();
+                    let ban_name = ban.name.clone();
+
+                    tokio::spawn(async move {
+                        tracing::info!("Background task: Sending unban commands to {} servers for {}", servers.len(), ban_name);
+                        use crate::utils::rcon::send_command;
+                        
+                        for server in servers {
+                            let address = format!("{}:{}", server.ip, server.port);
+                            let pwd = server.rcon_password.unwrap_or_default();
+                            
+                            // Unban SteamID
+                            if !steam_id.is_empty() {
+                                let cmd = format!("sm_unban \"{}\"", steam_id);
+                                let _ = send_command(&address, &pwd, &cmd).await;
+                            }
+                            
+                            // Unban IP
+                            if !ip.is_empty() {
+                                let cmd = format!("sm_unban \"{}\"", ip);
+                                let _ = send_command(&address, &pwd, &cmd).await;
+                            }
+                        }
+                        tracing::info!("Background task: Unban commands finished for {}", ban_name);
+                    });
+                }
+            }
+
             let _ = log_admin_action(
                 &state.db,
                 &user.sub,
                 "delete_ban",
-                &format!("BanID: {}", id),
-                "Deleted ban"
+                &format!("BanID: {}, Target: {} ({})", id, ban.name, ban.steam_id),
+                "Deleted ban (Unban commands queued)"
             ).await;
-            (StatusCode::OK, Json("Ban deleted")).into_response()
+            (StatusCode::OK, Json("Ban deleted, unban process started in background")).into_response()
         },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to delete ban from DB: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        },
     }
 }
