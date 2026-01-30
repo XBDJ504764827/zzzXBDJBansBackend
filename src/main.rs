@@ -56,8 +56,7 @@ async fn main() {
         .route("/api/check_ban", get(handlers::ban::check_ban))
         // Logs
         .route("/api/logs", get(handlers::log::list_logs).post(handlers::log::create_log))
-        // Records
-        .route("/api/records", get(handlers::record::list_records).post(handlers::record::create_record))
+
         // Server Management
         .route("/api/server-groups", get(handlers::server::list_server_groups).post(handlers::server::create_group))
         .route("/api/server-groups/:id", axum::routing::delete(handlers::server::delete_group))
