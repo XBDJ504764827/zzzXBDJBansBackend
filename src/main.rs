@@ -13,6 +13,7 @@ mod handlers;
 mod models;
 mod middleware;
 mod utils;
+mod bg_task;
 
 // Application State
 pub struct AppState {
@@ -36,6 +37,12 @@ async fn main() {
     ensure_super_admin(&pool).await;
 
     let state = Arc::new(AppState { db: pool });
+
+    // Spawn background task FIRST, cloning state
+    let task_state = state.clone();
+    tokio::spawn(async move {
+        crate::bg_task::start_background_task(task_state).await;
+    });
 
     let protected_routes = Router::new()
         .route("/api/auth/me", get(handlers::auth::me))

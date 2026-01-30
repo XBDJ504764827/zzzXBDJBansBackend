@@ -15,6 +15,7 @@ pub struct Ban {
     pub admin_name: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
+    pub server_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

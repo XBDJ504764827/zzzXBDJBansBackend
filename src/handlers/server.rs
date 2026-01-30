@@ -398,7 +398,7 @@ pub async fn ban_player(
     tracing::info!("Attempting to insert ban for: Name={}, SteamID={}, IP={}", name, steam_id, ip_only);
 
     let db_result = sqlx::query(
-        "INSERT INTO bans (name, steam_id, ip, ban_type, reason, duration, admin_name, expires_at, created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'active')"
+        "INSERT INTO bans (name, steam_id, ip, ban_type, reason, duration, admin_name, expires_at, created_at, status, server_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'active', ?)"
     )
     .bind(&name)
     .bind(&steam_id)
@@ -408,6 +408,7 @@ pub async fn ban_player(
     .bind(payload.duration.to_string())
     .bind(&user.sub)
     .bind(expires_at)
+    .bind(server.id)
     .execute(&state.db)
     .await;
 

@@ -49,36 +49,122 @@ pub async fn check_ban(
         return (StatusCode::BAD_REQUEST, "Missing steam_id or ip").into_response();
     }
     
-    // Check active bans
     let steam_id = params.steam_id.unwrap_or_default();
     let ip = params.ip.unwrap_or_default();
     
-    let ban = sqlx::query_as::<_, Ban>(
-        "SELECT * FROM bans WHERE status = 'active' AND (steam_id = ? OR ip = ?) LIMIT 1"
+    tracing::info!("CHECK_BAN: Checking SteamID: {}, IP: {}", steam_id, ip);
+
+    // 1. Check for DIRECT Account Ban (Matches SteamID)
+    let account_ban = sqlx::query_as::<_, Ban>(
+        "SELECT * FROM bans WHERE status = 'active' AND steam_id = ? LIMIT 1"
     )
     .bind(&steam_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match account_ban {
+        Ok(Some(mut b)) => {
+            tracing::info!("CHECK_BAN: Found Account Ban: ID={}, Expires={:?}", b.id, b.expires_at);
+            // Check expiration
+            if let Some(expires_at) = b.expires_at {
+                if Utc::now() > expires_at {
+                    tracing::info!("CHECK_BAN: Account Ban Expired. Deactivating and falling through.");
+                    let _ = sqlx::query("UPDATE bans SET status = 'expired' WHERE id = ?")
+                        .bind(b.id).execute(&state.db).await;
+                    // Expired - Do NOT return yet. Treat as not banned, proceed to check IP.
+                } else {
+                    return (StatusCode::OK, Json(b)).into_response();
+                }
+            } else {
+                return (StatusCode::OK, Json(b)).into_response();
+            }
+        },
+        Err(e) => {
+             tracing::error!("CHECK_BAN: DB Error on Account Check: {}", e);
+             return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        },
+        Ok(None) => {
+            tracing::info!("CHECK_BAN: No Active Account Ban found.");
+        }
+    }
+
+    // 2. Check for IP Ban (Matches IP AND ban_type = 'ip')
+    tracing::info!("CHECK_BAN: Checking IP Ban for IP: {}", ip);
+    let ip_ban = sqlx::query_as::<_, Ban>(
+        "SELECT * FROM bans WHERE status = 'active' AND ip = ? AND ban_type = 'ip' LIMIT 1"
+    )
     .bind(&ip)
     .fetch_optional(&state.db)
     .await;
 
-    match ban {
+    match ip_ban {
         Ok(Some(mut b)) => {
-            // Check expiration
+            tracing::info!("CHECK_BAN: Found IP Ban Match! Origin Ban ID: {}", b.id);
+             // Check expiration for the IP ban
             if let Some(expires_at) = b.expires_at {
                 if Utc::now() > expires_at {
-                    // Expired! Update DB
+                    tracing::info!("CHECK_BAN: IP Ban Expired.");
                     let _ = sqlx::query("UPDATE bans SET status = 'expired' WHERE id = ?")
-                        .bind(b.id)
-                        .execute(&state.db)
-                        .await;
-                    
+                        .bind(b.id).execute(&state.db).await;
                     return (StatusCode::NOT_FOUND, Json("Not banned (Expired)")).into_response();
                 }
             }
-            (StatusCode::OK, Json(b)).into_response()
-        }, 
-        Ok(None) => (StatusCode::NOT_FOUND, Json("Not banned")).into_response(), 
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+
+            // HIT! IP is banned, and user has no personal ban.
+            tracing::info!("CHECK_BAN: IP Ban Hit for new identity! Triggering Auto-Ban. IP: {}, New SteamID: {}", ip, steam_id);
+
+            // Create NEW Ban Record
+            let reason = "同IP关联封禁 (Different account repeated IP login)".to_string();
+            // Inherit expiration from the parent IP ban
+            let expires_at = b.expires_at; 
+            
+            let insert_result = sqlx::query(
+                "INSERT INTO bans (name, steam_id, ip, ban_type, reason, duration, admin_name, expires_at, created_at, status, server_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'active', ?)"
+            )
+            .bind("Auto-Banned") 
+            .bind(&steam_id)
+            .bind(&ip)
+            .bind("account") 
+            .bind(&reason)
+            .bind(&b.duration) 
+            .bind("System (IP Match)")
+            .bind(expires_at)
+            .bind(b.server_id)
+            .execute(&state.db)
+            .await;
+
+            match insert_result {
+                Ok(res) => {
+                    let new_id = res.last_insert_id() as i64;
+                    tracing::info!("CHECK_BAN: Auto-Ban Created Successfully. New ID: {}", new_id);
+                    let new_ban = Ban {
+                        id: new_id,
+                        name: "Auto-Banned".to_string(),
+                        steam_id: steam_id,
+                        ip: ip,
+                        ban_type: "account".to_string(),
+                        reason: Some(reason),
+                        duration: b.duration,
+                        status: "active".to_string(),
+                        admin_name: Some("System (IP Match)".to_string()),
+                        created_at: Some(Utc::now()),
+                        expires_at: expires_at,
+                        server_id: b.server_id
+                    };
+                    return (StatusCode::OK, Json(new_ban)).into_response();
+                },
+                Err(e) => {
+                    tracing::error!("CHECK_BAN: Failed to auto-create ban: {}", e);
+                    // If insert fails, still return the IP ban so they are blocked
+                    return (StatusCode::OK, Json(b)).into_response();
+                }
+            }
+        },
+        Ok(None) => {
+            tracing::info!("CHECK_BAN: No IP Ban found. User is Clean.");
+            return (StatusCode::NOT_FOUND, Json("Not banned")).into_response();
+        },
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
