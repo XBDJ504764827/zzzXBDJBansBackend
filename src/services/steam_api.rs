@@ -1,8 +1,11 @@
 use serde::Deserialize;
 use regex::Regex;
 
+<<<<<<< HEAD
 const STEAM_API_KEY: &str = "xxxxxxxxxxxxxxxxxxxxxx";
 
+=======
+>>>>>>> 87bca93 (修改显示代码结构优化后端性能)
 #[derive(Debug, Deserialize)]
 struct SteamLevelResponse {
     response: SteamLevelData,
@@ -47,19 +50,21 @@ struct ResolveVanityData {
 
 pub struct SteamService {
     client: reqwest::Client,
+    api_key: String,
 }
 
 impl SteamService {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
+            api_key: std::env::var("STEAM_API_KEY").expect("STEAM_API_KEY must be set"),
         }
     }
 
     pub async fn get_steam_level(&self, steam_id_64: &str) -> Option<i32> {
         let url = format!(
             "https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/?key={}&steamid={}",
-            STEAM_API_KEY, steam_id_64
+            &self.api_key, steam_id_64
         );
 
         match self.client.get(&url).send().await {
@@ -77,7 +82,7 @@ impl SteamService {
         // CS:GO AppID = 730
         let url = format!(
             "https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={}&steamid={}&format=json",
-            STEAM_API_KEY, steam_id_64
+            &self.api_key, steam_id_64
         );
 
         match self.client.get(&url).send().await {
@@ -191,7 +196,7 @@ impl SteamService {
     async fn resolve_vanity_url(&self, vanity_url: &str) -> Option<String> {
         let url = format!(
             "https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key={}&vanityurl={}",
-            STEAM_API_KEY, vanity_url
+            &self.api_key, vanity_url
         );
         
         match self.client.get(&url).send().await {
