@@ -8,7 +8,8 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::models::ban::{Ban, CreateBanRequest, UpdateBanRequest};
 use crate::handlers::auth::Claims;
-use crate::utils::log_admin_action;
+use crate::utils::{log_admin_action, calculate_expires_at};
+use chrono::Utc;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -35,12 +36,10 @@ pub async fn list_bans(
     }
 }
 
-use crate::utils::{calculate_expires_at, parse_duration};
-use chrono::Utc;
+// ... imports
+use crate::services::steam_api::SteamService;
 
-// ... (imports)
-
-// ... check_ban implementation
+// ... check_ban
 pub async fn check_ban(
     State(state): State<Arc<AppState>>,
     Query(params): Query<BanFilter>,
@@ -49,10 +48,21 @@ pub async fn check_ban(
         return (StatusCode::BAD_REQUEST, "Missing steam_id or ip").into_response();
     }
     
-    let steam_id = params.steam_id.unwrap_or_default();
+    let mut steam_id = params.steam_id.unwrap_or_default();
     let ip = params.ip.unwrap_or_default();
+
+    // CONVERSION: Ensure SteamID is in standard SteamID2 format (STEAM_0:...) for DB lookup
+    if!steam_id.is_empty() {
+         let steam_service = SteamService::new();
+         if let Some(id64) = steam_service.resolve_steam_id(&steam_id).await {
+              if let Some(id2) = steam_service.id64_to_id2(&id64) {
+
+                   steam_id = id2;
+              }
+         }
+    }
     
-    tracing::info!("CHECK_BAN: Checking SteamID: {}, IP: {}", steam_id, ip);
+
 
     // 1. Check for DIRECT Account Ban (Matches SteamID)
     let account_ban = sqlx::query_as::<_, Ban>(
@@ -64,11 +74,11 @@ pub async fn check_ban(
 
     match account_ban {
         Ok(Some(mut b)) => {
-            tracing::info!("CHECK_BAN: Found Account Ban: ID={}, Expires={:?}", b.id, b.expires_at);
+
             // Check expiration
             if let Some(expires_at) = b.expires_at {
                 if Utc::now() > expires_at {
-                    tracing::info!("CHECK_BAN: Account Ban Expired. Deactivating and falling through.");
+
                     let _ = sqlx::query("UPDATE bans SET status = 'expired' WHERE id = ?")
                         .bind(b.id).execute(&state.db).await;
                     // Expired - Do NOT return yet. Treat as not banned, proceed to check IP.
@@ -84,12 +94,12 @@ pub async fn check_ban(
              return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
         },
         Ok(None) => {
-            tracing::info!("CHECK_BAN: No Active Account Ban found.");
+
         }
     }
 
     // 2. Check for IP Ban (Matches IP AND ban_type = 'ip')
-    tracing::info!("CHECK_BAN: Checking IP Ban for IP: {}", ip);
+
     let ip_ban = sqlx::query_as::<_, Ban>(
         "SELECT * FROM bans WHERE status = 'active' AND ip = ? AND ban_type = 'ip' LIMIT 1"
     )
@@ -99,11 +109,11 @@ pub async fn check_ban(
 
     match ip_ban {
         Ok(Some(mut b)) => {
-            tracing::info!("CHECK_BAN: Found IP Ban Match! Origin Ban ID: {}", b.id);
+
              // Check expiration for the IP ban
             if let Some(expires_at) = b.expires_at {
                 if Utc::now() > expires_at {
-                    tracing::info!("CHECK_BAN: IP Ban Expired.");
+
                     let _ = sqlx::query("UPDATE bans SET status = 'expired' WHERE id = ?")
                         .bind(b.id).execute(&state.db).await;
                     return (StatusCode::NOT_FOUND, Json("Not banned (Expired)")).into_response();
@@ -161,7 +171,7 @@ pub async fn check_ban(
             }
         },
         Ok(None) => {
-            tracing::info!("CHECK_BAN: No IP Ban found. User is Clean.");
+
             return (StatusCode::NOT_FOUND, Json("Not banned")).into_response();
         },
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -171,9 +181,22 @@ pub async fn check_ban(
 pub async fn create_ban(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
-    Json(payload): Json<CreateBanRequest>,
+    Json(mut payload): Json<CreateBanRequest>,
 ) -> impl IntoResponse {
     let expires_at = calculate_expires_at(&payload.duration);
+
+    // CONVERSION: Ensure SteamID is SteamID2
+    let steam_service = SteamService::new();
+    if let Some(id64) = steam_service.resolve_steam_id(&payload.steam_id).await {
+         if let Some(id2) = steam_service.id64_to_id2(&id64) {
+
+             payload.steam_id = id2;
+         } else {
+             tracing::warn!("CREATE_BAN: Failed to convert ID64 {} to ID2", id64);
+         }
+    } else {
+         tracing::warn!("CREATE_BAN: Failed to resolve SteamID {}", payload.steam_id);
+    }
 
     let result = sqlx::query(
         "INSERT INTO bans (name, steam_id, ip, ban_type, reason, duration, admin_name, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
@@ -291,10 +314,10 @@ pub async fn delete_ban(
         }
     };
 
-    tracing::info!("Found ban record: {} (Steam: {}, IP: {})", ban.name, ban.steam_id, ban.ip);
+
 
     // 3. Delete from DB first (for fast response)
-    tracing::info!("Deleting ban ID {} from DB", id);
+
     let result = sqlx::query("DELETE FROM bans WHERE id = ?")
         .bind(id)
         .execute(&state.db)
@@ -322,7 +345,7 @@ pub async fn delete_ban(
                     let ban_name = ban.name.clone();
 
                     tokio::spawn(async move {
-                        tracing::info!("Background task: Sending unban commands to {} servers for {}", servers.len(), ban_name);
+                        tracing::debug!("Background task: Sending unban commands to {} servers for {}", servers.len(), ban_name);
                         use crate::utils::rcon::send_command;
                         
                         for server in servers {
@@ -341,7 +364,7 @@ pub async fn delete_ban(
                                 let _ = send_command(&address, &pwd, &cmd).await;
                             }
                         }
-                        tracing::info!("Background task: Unban commands finished for {}", ban_name);
+
                     });
                 }
             }

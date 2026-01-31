@@ -7,6 +7,9 @@ use std::sync::Arc;
 use crate::{AppState, models::whitelist::{Whitelist, CreateWhitelistRequest}};
 use serde_json::json;
 
+// ... imports
+use crate::services::steam_api::SteamService;
+
 pub async fn list_whitelist(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -23,8 +26,21 @@ pub async fn list_whitelist(
 
 pub async fn create_whitelist(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<CreateWhitelistRequest>,
+    Json(mut payload): Json<CreateWhitelistRequest>,
 ) -> impl IntoResponse {
+    // CONVERSION: Ensure SteamID is SteamID2
+    let steam_service = SteamService::new();
+    if let Some(id64) = steam_service.resolve_steam_id(&payload.steam_id).await {
+         if let Some(id2) = steam_service.id64_to_id2(&id64) {
+
+             payload.steam_id = id2;
+         } else {
+             tracing::warn!("CREATE_WHITELIST: Failed to convert ID64 {} to ID2", id64);
+         }
+    } else {
+         tracing::warn!("CREATE_WHITELIST: Failed to resolve SteamID {}", payload.steam_id);
+    }
+
     let result = sqlx::query(
         "INSERT INTO whitelist (steam_id, name, status) VALUES (?, ?, 'approved')",
     )

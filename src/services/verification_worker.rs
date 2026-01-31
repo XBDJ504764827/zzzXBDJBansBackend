@@ -30,83 +30,82 @@ pub async fn start_verification_worker(pool: MySqlPool) {
 }
 
 async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: &str) -> anyhow::Result<()> {
-    tracing::info!("Processing verification for {}", steam_id);
 
-    // 1. Check if Banned (If banned, deny immediately)
-    // Note: We should probably check the bans table.
-    // Assuming bans are strictly handled by plugin before even requesting verif? 
-    // Or we should check here too. Let's check here for safety.
+
+    // Special Case: Bots
+    if steam_id.eq_ignore_ascii_case("BOT") {
+        update_status(pool, steam_id, "allowed", "机器人", None, None).await?;
+        return Ok(());
+    }
+
+    // 0. Resolve SteamID
+    let resolved_id = steam_service.resolve_steam_id(steam_id).await.unwrap_or_else(|| steam_id.to_string());
+    // Try to convert to SteamID2 for DB matching
+    let steam_id_2 = steam_service.id64_to_id2(&resolved_id).unwrap_or_else(|| resolved_id.clone());
+    
+
+
+    // 1. Check if Banned
+    // Check against Resolved(64), Input, AND SteamID2
     let is_banned: bool = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM bans WHERE (steam_id = ? OR steam_id = ?) AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW())"
+        "SELECT COUNT(*) FROM bans WHERE (steam_id = ? OR steam_id = ? OR steam_id = ?) AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW())"
     )
-    .bind(steam_id) // SteamID64
-    .bind(steam_id) // We'd need to convert to SteamID2 to be thorough, but let's assume SteamID is consistent or handled. 
-                    // Actually, for safety, let's assume the plugin passed SteamID64.
+    .bind(&resolved_id)
+    .bind(steam_id)
+    .bind(&steam_id_2)
     .fetch_one(pool)
     .await
     .map(|c: i64| c > 0)
     .unwrap_or(false);
 
     if is_banned {
-        update_status(pool, steam_id, "denied", "Player is banned", None, None).await?;
+        update_status(pool, steam_id, "denied", "依然在封禁中", None, None).await?;
         return Ok(());
     }
 
-    // 2. Check Whitelist (If whitelisted, allow immediately)
-    // We need to convert SteamID64 to Steam2 or just check broadly? 
-    // The previous implementation used Steam2. Steam Web API uses Steam64.
-    // The plugin will likely pass Steam64 for this table.
-    // We should probably check Whitelist broadly.
-    // BUT the prompt says: "If account not satisfy conditions but in whitelist... allow".
-    // So Whitelist is a valid bypass.
-    
-    // We need a way to check whitelist. Our whitelist table likely has Steam2 IDs.
-    // Converting 64 to 2 is annoying in Rust without a crate.
-    // Let's assume the plugin handles the Whitelist check logic? 
-    // No, the prompt says "Backend returns query result". 
-    // Let's check Steam Level first, then if fail, check Whitelist.
+    // 2. Fetch All Metrics
+    let gokz_rating_opt = steam_service.get_gokz_rating(&resolved_id).await;
+    let level_opt = steam_service.get_steam_level(&resolved_id).await;
+    let playtime_opt = steam_service.get_csgo_playtime_minutes(&resolved_id).await;
 
-    // 3. Steam API Checks
-    let level = steam_service.get_steam_level(steam_id).await;
-    let playtime = steam_service.get_csgo_playtime_minutes(steam_id).await;
-
-    let level_val = level.unwrap_or(0);
-    let playtime_val = playtime.unwrap_or(0);
+    let gokz_rating = gokz_rating_opt.unwrap_or(0.0);
+    let level_val = level_opt.unwrap_or(0);
+    let playtime_val = playtime_opt.unwrap_or(0);
     let playtime_hours = playtime_val as f32 / 60.0;
 
-    let mut allowed = false;
-    let mut reason = String::from("Criteria unmet");
 
-    if level_val >= 1 && playtime_hours >= 100.0 {
+
+    let mut allowed = false;
+    let mut reason = String::from("未满足条件");
+
+    // 3. Strict Criteria Check
+    // Requirement: Rating >= 4 AND Level >= 1 AND Playtime >= 100h
+    if gokz_rating >= 4.0 && level_val >= 1 && playtime_hours >= 100.0 {
         allowed = true;
-        reason = format!("Qualified: Lv{} / {:.1}h", level_val, playtime_hours);
+        reason = format!("验证通过: Rating {:.2} / 等级 {} / 时长 {:.1}h", gokz_rating, level_val, playtime_hours);
     } else {
-        // Fallback: Check Whitelist
-        // Simple check: Is this ID in whitelist?
-        // Note: The whitelist table might use Steam2 format (STEAM_1:...).
-        // We might fail to match if we only search Steam64. 
-        // Ideally we convert. For now, let's query broadly or search. To be safe, we might need to handle this.
-        // Or we can rely on the user inputting Steam64 in whitelist table too?
-        // Let's search by string match.
-        
-        let in_whitelist = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM whitelist WHERE steam_id = ?")
+        // 4. Fallback: Whitelist Check
+        let in_whitelist = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM whitelist WHERE steam_id = ? OR steam_id = ? OR steam_id = ?")
+            .bind(&resolved_id)
             .bind(steam_id)
+            .bind(&steam_id_2)
             .fetch_one(pool)
             .await
             .unwrap_or(0) > 0;
             
         if in_whitelist {
             allowed = true;
-            reason = String::from("Whitelisted");
+            reason = String::from("白名单用户");
         } else {
-            reason = format!("Denied: Lv{} (Req 1) / {:.1}h (Req 100h) & Not Whitelisted", level_val, playtime_hours);
+            // Detailed failure reason in Chinese
+            reason = format!("验证失败: Rating {:.2}(需>=4) / 等级 {}(需>=1) / 时长 {:.1}h(需>=100h) 且不在白名单", gokz_rating, level_val, playtime_hours);
         }
     }
 
     if allowed {
-        update_status(pool, steam_id, "allowed", &reason, level, playtime).await?;
+        update_status(pool, steam_id, "allowed", &reason, Some(level_val), Some(playtime_val)).await?;
     } else {
-        update_status(pool, steam_id, "denied", &reason, level, playtime).await?;
+        update_status(pool, steam_id, "denied", &reason, Some(level_val), Some(playtime_val)).await?;
     }
 
     Ok(())
