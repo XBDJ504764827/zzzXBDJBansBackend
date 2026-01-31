@@ -1,11 +1,6 @@
 use serde::Deserialize;
 use regex::Regex;
 
-<<<<<<< HEAD
-const STEAM_API_KEY: &str = "xxxxxxxxxxxxxxxxxxxxxx";
-
-=======
->>>>>>> 87bca93 (修改显示代码结构优化后端性能)
 #[derive(Debug, Deserialize)]
 struct SteamLevelResponse {
     response: SteamLevelData,
