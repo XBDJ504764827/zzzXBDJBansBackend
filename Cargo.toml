@@ -20,5 +20,7 @@ tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
 uuid = { version = "1.20.0", features = ["serde", "v4"] }
 regex = "1.10.4"
+anyhow = "1.0"
 rcon = "0.6.0"
 byteorder = "1.5.0"
+reqwest = { version = "0.12.12", features = ["json"] }

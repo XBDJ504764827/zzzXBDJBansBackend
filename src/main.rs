@@ -14,6 +14,7 @@ mod models;
 mod middleware;
 mod utils;
 mod bg_task;
+mod services;
 
 // Application State
 pub struct AppState {
@@ -42,6 +43,11 @@ async fn main() {
     let task_state = state.clone();
     tokio::spawn(async move {
         crate::bg_task::start_background_task(task_state).await;
+    });
+
+    let verif_state = state.clone();
+    tokio::spawn(async move {
+        crate::services::verification_worker::start_verification_worker(verif_state.db.clone()).await;
     });
 
     let protected_routes = Router::new()
