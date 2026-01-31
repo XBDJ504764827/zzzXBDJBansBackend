@@ -34,7 +34,7 @@ async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: 
 
     // Special Case: Bots
     if steam_id.eq_ignore_ascii_case("BOT") {
-        update_status(pool, steam_id, "allowed", "机器人", None, None).await?;
+        update_status(pool, steam_id, "allowed", "Bot", None, None).await?;
         return Ok(());
     }
 
@@ -59,7 +59,7 @@ async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: 
     .unwrap_or(false);
 
     if is_banned {
-        update_status(pool, steam_id, "denied", "依然在封禁中", None, None).await?;
+        update_status(pool, steam_id, "denied", "Account Banned", None, None).await?;
         return Ok(());
     }
 
@@ -76,13 +76,13 @@ async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: 
 
 
     let mut allowed = false;
-    let mut reason = String::from("未满足条件");
+    let mut reason = String::from("Requirements not met");
 
     // 3. Strict Criteria Check
     // Requirement: Rating >= 4 AND Level >= 1 AND Playtime >= 100h
     if gokz_rating >= 4.0 && level_val >= 1 && playtime_hours >= 100.0 {
         allowed = true;
-        reason = format!("验证通过: Rating {:.2} / 等级 {} / 时长 {:.1}h", gokz_rating, level_val, playtime_hours);
+        reason = format!("Verified: Rating {:.2} / Level {} / Hours {:.1}h", gokz_rating, level_val, playtime_hours);
     } else {
         // 4. Fallback: Whitelist Check
         let in_whitelist = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM whitelist WHERE steam_id = ? OR steam_id = ? OR steam_id = ?")
@@ -95,10 +95,10 @@ async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: 
             
         if in_whitelist {
             allowed = true;
-            reason = String::from("白名单用户");
+            reason = String::from("Whitelisted");
         } else {
-            // Detailed failure reason in Chinese
-            reason = format!("验证失败: Rating {:.2}(需>=4) / 等级 {}(需>=1) / 时长 {:.1}h(需>=100h) 且不在白名单", gokz_rating, level_val, playtime_hours);
+            // Detailed failure reason in English
+            reason = format!("Verify Failed: Rating {:.2}(Req>=4) / Level {}(Req>=1) / Hours {:.1}h(Req>=100h) & Not Whitelisted", gokz_rating, level_val, playtime_hours);
         }
     }
 
