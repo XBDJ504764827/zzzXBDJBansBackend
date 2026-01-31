@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use regex::Regex;
 
-const STEAM_API_KEY: &str = "2F4169922F55822ED36571D3B946E457";
+const STEAM_API_KEY: &str = "xxxxxxxxxxxxxxxxxxxxxx";
 
 #[derive(Debug, Deserialize)]
 struct SteamLevelResponse {
