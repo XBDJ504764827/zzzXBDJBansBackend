@@ -82,6 +82,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(root))
         .route("/api/auth/login", axum::routing::post(handlers::auth::login))
+        .route("/api/auth/change-password", axum::routing::post(handlers::auth::change_password).layer(axum::middleware::from_fn(middleware::auth_middleware)))
         .merge(protected_routes)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())

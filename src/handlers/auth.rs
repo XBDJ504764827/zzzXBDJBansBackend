@@ -77,3 +77,53 @@ pub async fn me() -> impl IntoResponse {
     // Need middleware to extract claims. For now placeholder.
     (StatusCode::OK, Json(json!({ "msg": "Me" })))
 }
+
+use bcrypt::{hash, DEFAULT_COST};
+
+pub async fn change_password(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Extension(user): axum::extract::Extension<Claims>,
+    Json(payload): Json<crate::models::user::ChangePasswordRequest>,
+) -> impl IntoResponse {
+    // 1. Fetch current user
+    let row = sqlx::query_as::<_, crate::models::user::Admin>("SELECT * FROM admins WHERE username = ?")
+        .bind(&user.sub)
+        .fetch_optional(&state.db)
+        .await;
+
+    match row {
+        Ok(Some(admin)) => {
+            // 2. Verify Old Password
+            let valid = verify(&payload.old_password, &admin.password).unwrap_or(false);
+            if !valid {
+                return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Old password incorrect" }))).into_response();
+            }
+
+            // 3. Update to New Password
+            let hashed = hash(payload.new_password, DEFAULT_COST).unwrap();
+            let update = sqlx::query("UPDATE admins SET password = ? WHERE id = ?")
+                .bind(hashed)
+                .bind(admin.id)
+                .execute(&state.db)
+                .await;
+
+            match update {
+                Ok(_) => {
+                     // Log functionality (optional)
+                     let _ = crate::utils::log_admin_action(
+                        &state.db,
+                        &user.sub,
+                        "change_password",
+                        "Self",
+                        "Changed own password"
+                     ).await;
+
+                    (StatusCode::OK, Json(json!({ "message": "Password updated successfully" }))).into_response()
+                },
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+            }
+        },
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "User not found" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
