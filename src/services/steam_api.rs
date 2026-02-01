@@ -58,7 +58,7 @@ impl SteamService {
 
     pub async fn get_steam_level(&self, steam_id_64: &str) -> Option<i32> {
         let url = format!(
-            "https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/?key={}&steamid={}",
+            "https://api.steamchina.com/IPlayerService/GetSteamLevel/v0001/?key={}&steamid={}&include_appinfo=1",
             &self.api_key, steam_id_64
         );
 
@@ -76,7 +76,7 @@ impl SteamService {
     pub async fn get_csgo_playtime_minutes(&self, steam_id_64: &str) -> Option<i32> {
         // CS:GO AppID = 730
         let url = format!(
-            "https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={}&steamid={}&format=json",
+            "https://api.steamchina.com/IPlayerService/GetOwnedGames/v0001/?key={}&steamid={}&include_appinfo=1&format=json",
             &self.api_key, steam_id_64
         );
 
