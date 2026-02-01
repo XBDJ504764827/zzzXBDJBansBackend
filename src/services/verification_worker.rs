@@ -150,15 +150,17 @@ async fn process_user(pool: &MySqlPool, redis_client: &redis::Client, steam_serv
         }
     }
 
-    let playtime_hours = playtime_val as f32 / 60.0;
+    // let playtime_hours = playtime_val as f32 / 60.0; // Unused
+
     
     let mut allowed = false;
     let mut reason = String::from("Requirements not met");
 
     // 4. Strict Criteria Check
-    if gokz_rating >= 2.5 && level_val >= 1 && playtime_hours >= 100.0 {
+    // 4. Strict Criteria Check
+    if gokz_rating >= 3.0 && level_val >= 1 {
         allowed = true;
-        reason = format!("Verified: Rating {:.2} / Level {} / Hours {:.1}h", gokz_rating, level_val, playtime_hours);
+        reason = format!("Verified: Rating {:.2} / Level {}", gokz_rating, level_val);
     } else {
         // 5. Fallback: Whitelist Check
         let in_whitelist = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM whitelist WHERE steam_id = ? OR steam_id = ? OR steam_id = ?")
@@ -173,7 +175,7 @@ async fn process_user(pool: &MySqlPool, redis_client: &redis::Client, steam_serv
             allowed = true;
             reason = String::from("Whitelisted");
         } else {
-            reason = format!("Verify Failed: Rating {:.2}(Req>=4) / Level {}(Req>=1) / Hours {:.1}h(Req>=100h) & Not Whitelisted", gokz_rating, level_val, playtime_hours);
+            reason = format!("Verify Failed: Rating {:.2}(Req>=3.0) / Level {}(Req>=1) & Not Whitelisted", gokz_rating, level_val);
         }
     }
 
