@@ -2,6 +2,7 @@ use std::time::Duration;
 use sqlx::{MySqlPool, Row};
 use crate::services::steam_api::SteamService;
 use crate::models::whitelist::Whitelist;
+use crate::utils::log_admin_action;
 use redis::AsyncCommands; // Import for set_ex, get
 
 pub async fn start_verification_worker(pool: MySqlPool, redis_client: redis::Client) {
@@ -52,6 +53,7 @@ async fn update_status(pool: &MySqlPool, steam_id: &str, status: &str, reason: &
 async fn process_user(pool: &MySqlPool, redis_client: &redis::Client, steam_service: &SteamService, steam_id: &str) -> anyhow::Result<()> {
     // Special Case: Bots
     if steam_id.eq_ignore_ascii_case("BOT") {
+        let _ = log_admin_action(pool, "System", "player_verification", steam_id, "Allowed: Bot").await;
         update_status(pool, steam_id, "allowed", "Bot", None, None).await?;
         return Ok(());
     }
@@ -73,6 +75,7 @@ async fn process_user(pool: &MySqlPool, redis_client: &redis::Client, steam_serv
     .unwrap_or(false);
 
     if is_banned {
+        let _ = log_admin_action(pool, "System", "player_verification", steam_id, "Denied: Account Banned").await;
         update_status(pool, steam_id, "denied", "Account Banned", None, None).await?;
         return Ok(());
     }
@@ -191,11 +194,27 @@ async fn process_user(pool: &MySqlPool, redis_client: &redis::Client, steam_serv
                 tracing::info!("Cached verified status for {} in Redis (24h)", steam_id);
             }
         }
+        
+        // Log Success
+        let _ = log_admin_action(
+            pool, 
+            "System", 
+            "player_verification", 
+            steam_id, 
+            &format!("Allowed: {}", reason)
+        ).await;
 
         update_status(pool, steam_id, "allowed", &reason, Some(level_val), Some(playtime_val)).await?;
     } else {
         // Verification Failed
         // DO NOT CACHE in Redis.
+        let _ = log_admin_action(
+            pool, 
+            "System", 
+            "player_verification", 
+            steam_id, 
+            &format!("Denied: {}", reason)
+        ).await;
         update_status(pool, steam_id, "denied", &reason, Some(level_val), Some(playtime_val)).await?;
     }
 
