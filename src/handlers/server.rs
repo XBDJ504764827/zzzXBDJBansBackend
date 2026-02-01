@@ -43,6 +43,7 @@ pub async fn list_server_groups(
                 port: s.port,
                 rcon_password: s.rcon_password.clone(),
                 created_at: s.created_at,
+                verification_enabled: s.verification_enabled,
             })
             .collect();
 
@@ -102,13 +103,14 @@ pub async fn create_server(
     Json(payload): Json<CreateServerRequest>,
 ) -> impl IntoResponse {
     let result = sqlx::query(
-        "INSERT INTO servers (group_id, name, ip, port, rcon_password) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO servers (group_id, name, ip, port, rcon_password, verification_enabled) VALUES (?, ?, ?, ?, ?, ?)"
     )
     .bind(payload.group_id)
     .bind(&payload.name)
     .bind(&payload.ip)
     .bind(payload.port)
     .bind(&payload.rcon_password)
+    .bind(payload.verification_enabled.unwrap_or(true))
     .execute(&state.db)
     .await;
 
@@ -138,6 +140,9 @@ pub async fn update_server(
     }
      if let Some(pwd) = payload.rcon_password {
         let _ = sqlx::query("UPDATE servers SET rcon_password = ? WHERE id = ?").bind(pwd).bind(id).execute(&state.db).await;
+    }
+    if let Some(verif) = payload.verification_enabled {
+        let _ = sqlx::query("UPDATE servers SET verification_enabled = ? WHERE id = ?").bind(verif).bind(id).execute(&state.db).await;
     }
 
      let _ = log_admin_action(&state.db, &user.sub, "update_server", &format!("ID: {}", id), "Updated server").await;

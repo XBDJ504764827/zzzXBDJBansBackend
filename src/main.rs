@@ -19,7 +19,6 @@ mod services;
 // Application State
 pub struct AppState {
     pub db: sqlx::MySqlPool,
-    pub redis: redis::Client,
 }
 
 #[tokio::main]
@@ -37,12 +36,8 @@ async fn main() {
 
     ensure_super_admin(&pool).await;
 
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
-    let redis_client = redis::Client::open(redis_url).expect("Failed to create Redis client");
-
     let state = Arc::new(AppState { 
         db: pool,
-        redis: redis_client.clone(),
     });
 
     // Spawn background task FIRST, cloning state
@@ -53,7 +48,7 @@ async fn main() {
 
     let verif_state = state.clone();
     tokio::spawn(async move {
-        crate::services::verification_worker::start_verification_worker(verif_state.db.clone(), verif_state.redis.clone()).await;
+        crate::services::verification_worker::start_verification_worker(verif_state.db.clone()).await;
     });
 
     let protected_routes = Router::new()
