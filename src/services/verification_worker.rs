@@ -156,7 +156,7 @@ async fn process_user(pool: &MySqlPool, redis_client: &redis::Client, steam_serv
     let mut reason = String::from("Requirements not met");
 
     // 4. Strict Criteria Check
-    if gokz_rating >= 4.0 && level_val >= 1 && playtime_hours >= 100.0 {
+    if gokz_rating >= 2.5 && level_val >= 1 && playtime_hours >= 100.0 {
         allowed = true;
         reason = format!("Verified: Rating {:.2} / Level {} / Hours {:.1}h", gokz_rating, level_val, playtime_hours);
     } else {
