@@ -68,6 +68,10 @@ async fn main() {
         .route("/api/whitelist", get(handlers::whitelist::list_whitelist).post(handlers::whitelist::create_whitelist))
         .route("/api/whitelist/:id", axum::routing::delete(handlers::whitelist::delete_whitelist))
 
+        // Verifications (Manual)
+        .route("/api/verifications", get(handlers::verification::list_verifications).post(handlers::verification::create_verification))
+        .route("/api/verifications/:id", axum::routing::put(handlers::verification::update_verification).delete(handlers::verification::delete_verification))
+
         // Server Management
         .route("/api/server-groups", get(handlers::server::list_server_groups).post(handlers::server::create_group))
         .route("/api/server-groups/:id", axum::routing::delete(handlers::server::delete_group))

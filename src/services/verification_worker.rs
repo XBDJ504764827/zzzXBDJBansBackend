@@ -5,22 +5,35 @@ use crate::utils::log_admin_action;
 
 pub async fn start_verification_worker(pool: MySqlPool) {
     let steam_service = SteamService::new();
-    tracing::info!("Verification Worker started (No Cache Mode).");
+    tracing::info!("Verification Worker started (Dual Mode: Cache & Manual).");
 
     loop {
-        // Poll pending requests
-        let pending = sqlx::query("SELECT steam_id FROM player_verifications WHERE status = 'pending' LIMIT 10")
+        // 1. Priority: Manual Verifications
+        let pending_manual = sqlx::query("SELECT steam_id FROM player_verifications WHERE status = 'pending' LIMIT 10")
             .fetch_all(&pool)
             .await;
 
-        if let Ok(rows) = pending {
+        if let Ok(rows) = pending_manual {
             for row in rows {
                 let steam_id: String = row.get("steam_id");
-                
-                // Process each user
-                match process_user(&pool, &steam_service, &steam_id).await {
+                match process_user(&pool, &steam_service, &steam_id, "player_verifications").await {
                     Ok(_) => {},
-                    Err(e) => tracing::error!("Error processing verif for {}: {:?}", steam_id, e),
+                    Err(e) => tracing::error!("Error processing manual verif for {}: {:?}", steam_id, e),
+                }
+            }
+        }
+
+        // 2. Secondary: Player Cache (Automated)
+        let pending_cache = sqlx::query("SELECT steam_id FROM player_cache WHERE status = 'pending' LIMIT 10")
+            .fetch_all(&pool)
+            .await;
+
+        if let Ok(rows) = pending_cache {
+            for row in rows {
+                let steam_id: String = row.get("steam_id");
+                match process_user(&pool, &steam_service, &steam_id, "player_cache").await {
+                    Ok(_) => {},
+                    Err(e) => tracing::error!("Error processing cache verif for {}: {:?}", steam_id, e),
                 }
             }
         }
@@ -29,8 +42,9 @@ pub async fn start_verification_worker(pool: MySqlPool) {
     }
 }
 
-async fn update_status(pool: &MySqlPool, steam_id: &str, status: &str, reason: &str, level: Option<i32>, playtime: Option<i32>) -> anyhow::Result<()> {
-    sqlx::query("UPDATE player_verifications SET status = ?, reason = ?, steam_level = ?, playtime_minutes = ?, updated_at = NOW() WHERE steam_id = ?")
+async fn update_status(pool: &MySqlPool, table: &str, steam_id: &str, status: &str, reason: &str, level: Option<i32>, playtime: Option<i32>) -> anyhow::Result<()> {
+    let query = format!("UPDATE {} SET status = ?, reason = ?, steam_level = ?, playtime_minutes = ?, updated_at = NOW() WHERE steam_id = ?", table);
+    sqlx::query(&query)
         .bind(status)
         .bind(reason)
         .bind(level)
@@ -41,11 +55,11 @@ async fn update_status(pool: &MySqlPool, steam_id: &str, status: &str, reason: &
     Ok(())
 }
 
-async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: &str) -> anyhow::Result<()> {
+async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: &str, table: &str) -> anyhow::Result<()> {
     // Special Case: Bots
     if steam_id.eq_ignore_ascii_case("BOT") {
         let _ = log_admin_action(pool, "System", "player_verification", steam_id, "Allowed: Bot").await;
-        update_status(pool, steam_id, "allowed", "Bot", None, None).await?;
+        update_status(pool, table, steam_id, "allowed", "Bot", None, None).await?;
         return Ok(());
     }
 
@@ -67,12 +81,11 @@ async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: 
 
     if is_banned {
         let _ = log_admin_action(pool, "System", "player_verification", steam_id, "Denied: Account Banned").await;
-        update_status(pool, steam_id, "denied", "Account Banned", None, None).await?;
+        update_status(pool, table, steam_id, "denied", "Account Banned", None, None).await?;
         return Ok(());
     }
 
-    // 2. FETCH DATA FROM API (No Cache, No Fallback)
-    // Always fetch fresh data
+    // 2. FETCH DATA FROM API
     let gokz_rating_opt = steam_service.get_gokz_rating(&resolved_id).await;
     let level_opt = steam_service.get_steam_level(&resolved_id).await;
     let playtime_opt = steam_service.get_csgo_playtime_minutes(&resolved_id).await;
@@ -81,7 +94,6 @@ async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: 
     let level_val = level_opt.unwrap_or(0);
     let playtime_val = playtime_opt.unwrap_or(0);
 
-    
     let mut allowed = false;
     let mut reason = String::from("Requirements not met");
 
@@ -108,26 +120,27 @@ async fn process_user(pool: &MySqlPool, steam_service: &SteamService, steam_id: 
     }
 
     if allowed {
-        // Log Success
+        // Log only if it's the first time or manual? 
+        // For now, log everything as before, but maybe we can distinguish in logs
+        // Let's keep logging uniform for now.
         let _ = log_admin_action(
             pool, 
             "System", 
             "player_verification", 
             steam_id, 
-            &format!("Allowed: {}", reason)
+            &format!("Allowed[{}]: {}", table, reason)
         ).await;
 
-        update_status(pool, steam_id, "allowed", &reason, Some(level_val), Some(playtime_val)).await?;
+        update_status(pool, table, steam_id, "allowed", &reason, Some(level_val), Some(playtime_val)).await?;
     } else {
-        // Verification Failed
         let _ = log_admin_action(
             pool, 
             "System", 
             "player_verification", 
             steam_id, 
-            &format!("Denied: {}", reason)
+            &format!("Denied[{}]: {}", table, reason)
         ).await;
-        update_status(pool, steam_id, "denied", &reason, Some(level_val), Some(playtime_val)).await?;
+        update_status(pool, table, steam_id, "denied", &reason, Some(level_val), Some(playtime_val)).await?;
     }
 
     Ok(())
