@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 use std::sync::Arc;
 use sqlx::Row;
+use chrono::{DateTime, Utc};
 
 #[derive(Serialize)]
 pub struct VerificationRecord {
@@ -15,8 +16,8 @@ pub struct VerificationRecord {
     pub reason: Option<String>,
     pub steam_level: Option<i32>,
     pub playtime_minutes: Option<i32>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize)]
