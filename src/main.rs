@@ -64,9 +64,13 @@ async fn main() {
         // Logs
         .route("/api/logs", get(handlers::log::list_logs).post(handlers::log::create_log))
 
-        // Whitelist
+        // Whitelist (管理员操作)
         .route("/api/whitelist", get(handlers::whitelist::list_whitelist).post(handlers::whitelist::create_whitelist))
+        .route("/api/whitelist/pending", get(handlers::whitelist::list_pending))
+        .route("/api/whitelist/rejected", get(handlers::whitelist::list_rejected))
         .route("/api/whitelist/:id", axum::routing::delete(handlers::whitelist::delete_whitelist))
+        .route("/api/whitelist/:id/approve", axum::routing::put(handlers::whitelist::approve_whitelist))
+        .route("/api/whitelist/:id/reject", axum::routing::put(handlers::whitelist::reject_whitelist))
 
         // Verifications (Manual)
         .route("/api/verifications", get(handlers::verification::list_verifications).post(handlers::verification::create_verification))
@@ -88,6 +92,8 @@ async fn main() {
         .route("/", get(root))
         .route("/api/auth/login", axum::routing::post(handlers::auth::login))
         .route("/api/auth/change-password", axum::routing::post(handlers::auth::change_password).layer(axum::middleware::from_fn(middleware::auth_middleware)))
+        // 公开路由：白名单申请（无需认证）
+        .route("/api/whitelist/apply", axum::routing::post(handlers::whitelist::apply_whitelist))
         .merge(protected_routes)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())

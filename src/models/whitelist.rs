@@ -17,3 +17,10 @@ pub struct CreateWhitelistRequest {
     pub steam_id: String,
     pub name: String,
 }
+
+// 玩家申请白名单的请求
+#[derive(Debug, Deserialize)]
+pub struct ApplyWhitelistRequest {
+    pub steam_id: String,
+    pub name: String,
+}

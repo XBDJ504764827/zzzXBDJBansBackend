@@ -1,17 +1,19 @@
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     response::IntoResponse,
     Json,
 };
 use std::sync::Arc;
-use crate::{AppState, models::whitelist::{Whitelist, CreateWhitelistRequest}};
+use crate::{AppState, models::whitelist::{Whitelist, CreateWhitelistRequest, ApplyWhitelistRequest}};
 use serde_json::json;
 use crate::services::steam_api::SteamService;
 
+// 获取已审核通过的白名单列表（管理员）
 pub async fn list_whitelist(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let whitelist = sqlx::query_as::<_, Whitelist>("SELECT * FROM whitelist ORDER BY created_at DESC")
+    let whitelist = sqlx::query_as::<_, Whitelist>("SELECT * FROM whitelist WHERE status = 'approved' ORDER BY created_at DESC")
         .fetch_all(&state.db)
         .await
         .unwrap_or_else(|e| {
@@ -22,6 +24,103 @@ pub async fn list_whitelist(
     Json(whitelist)
 }
 
+// 获取待审核的申请列表（管理员）
+pub async fn list_pending(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let pending = sqlx::query_as::<_, Whitelist>("SELECT * FROM whitelist WHERE status = 'pending' ORDER BY created_at DESC")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("Failed to fetch pending whitelist: {:?}", e);
+            vec![]
+        });
+
+    Json(pending)
+}
+
+// 获取已拒绝的申请列表（管理员）
+pub async fn list_rejected(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let rejected = sqlx::query_as::<_, Whitelist>("SELECT * FROM whitelist WHERE status = 'rejected' ORDER BY created_at DESC")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("Failed to fetch rejected whitelist: {:?}", e);
+            vec![]
+        });
+
+    Json(rejected)
+}
+
+// 玩家提交申请（公开接口，无需认证）
+pub async fn apply_whitelist(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ApplyWhitelistRequest>,
+) -> impl IntoResponse {
+    let steam_service = SteamService::new();
+    
+    // 解析输入的 SteamID 为各种格式
+    // 严格模式：resolve_steam_id 如果返回 Some，表示解析成功。
+    // 我们必须确保能拿到 ID64, ID3, ID2
+    let steam_id_64_opt = steam_service.resolve_steam_id(&payload.steam_id).await;
+    
+    if steam_id_64_opt.is_none() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "SteamID 格式无效，请检查" })));
+    }
+    
+    let steam_id_64 = steam_id_64_opt.unwrap();
+    let steam_id_2_opt = steam_service.id64_to_id2(&steam_id_64);
+    let steam_id_3 = steam_service.id64_to_id3(&steam_id_64); 
+
+    // 确保三种格式都存在
+    if steam_id_2_opt.is_none() || steam_id_3.is_none() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "无法解析 SteamID 格式" })));
+    }
+    let steam_id_2 = steam_id_2_opt.unwrap();
+
+    // 检查是否已存在（任何状态）
+    // 获取已存在的记录状态
+    let existing_status: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM whitelist WHERE steam_id_64 = ? OR steam_id = ?"
+    )
+    .bind(&steam_id_64)
+    .bind(&steam_id_2)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    if let Some(status) = existing_status {
+        let msg = match status.as_str() {
+            "approved" => "您已在白名单中",
+            "pending" => "您已经提交请等待管理员审核",
+            "rejected" => "您未通过白名单审核，如有异议请联系群管理员",
+            _ => "您已存在记录",
+        };
+        return (StatusCode::CONFLICT, Json(json!({ "error": msg, "status": status })));
+    }
+
+    let result = sqlx::query(
+        "INSERT INTO whitelist (steam_id, steam_id_3, steam_id_64, name, status) VALUES (?, ?, ?, ?, 'pending')",
+    )
+    .bind(&steam_id_2)
+    .bind(&steam_id_3)
+    .bind(&steam_id_64)
+    .bind(&payload.name)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => (StatusCode::CREATED, Json(json!({ "message": "申请已提交，请等待管理员审核" }))),
+        Err(e) => {
+            tracing::error!("Failed to submit whitelist application: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "提交申请失败" })))
+        }
+    }
+}
+
+// 管理员添加白名单（直接通过）
 pub async fn create_whitelist(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateWhitelistRequest>,
@@ -29,14 +128,21 @@ pub async fn create_whitelist(
     let steam_service = SteamService::new();
     
     // 解析输入的 SteamID 为各种格式
-    let steam_id_64 = steam_service.resolve_steam_id(&payload.steam_id).await
-        .unwrap_or_else(|| payload.steam_id.clone());
+    let steam_id_64_opt = steam_service.resolve_steam_id(&payload.steam_id).await;
     
-    let steam_id_2 = steam_service.id64_to_id2(&steam_id_64)
-        .unwrap_or_else(|| payload.steam_id.clone());
+    if steam_id_64_opt.is_none() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Invalid SteamID format" })));
+    }
     
-    let steam_id_3 = steam_service.id64_to_id3(&steam_id_64)
-        .unwrap_or_default();
+    let steam_id_64 = steam_id_64_opt.unwrap();
+    let steam_id_2_opt = steam_service.id64_to_id2(&steam_id_64);
+    let steam_id_3 = steam_service.id64_to_id3(&steam_id_64);
+
+    if steam_id_2_opt.is_none() || steam_id_3.is_none() {
+         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Cannot resolve SteamID variants" })));
+    }
+    let steam_id_2 = steam_id_2_opt.unwrap();
+
 
     let result = sqlx::query(
         "INSERT INTO whitelist (steam_id, steam_id_3, steam_id_64, name, status) VALUES (?, ?, ?, ?, 'approved')",
@@ -49,14 +155,53 @@ pub async fn create_whitelist(
     .await;
 
     match result {
-        Ok(_) => (axum::http::StatusCode::CREATED, Json(json!({ "message": "Whitelist added" }))),
+        Ok(_) => (StatusCode::CREATED, Json(json!({ "message": "Whitelist added" }))),
         Err(e) => {
             tracing::error!("Failed to add whitelist: {:?}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "Failed to add whitelist" })))
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "Failed to add whitelist or duplicate entry" })))
         }
     }
 }
 
+// 审核通过
+pub async fn approve_whitelist(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let result = sqlx::query("UPDATE whitelist SET status = 'approved' WHERE id = ?")
+        .bind(id)
+        .execute(&state.db)
+        .await;
+
+    match result {
+        Ok(_) => (StatusCode::OK, Json(json!({ "message": "已审核通过" }))),
+        Err(e) => {
+            tracing::error!("Failed to approve whitelist: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "审核失败" })))
+        }
+    }
+}
+
+// 审核拒绝
+pub async fn reject_whitelist(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let result = sqlx::query("UPDATE whitelist SET status = 'rejected' WHERE id = ?")
+        .bind(id)
+        .execute(&state.db)
+        .await;
+
+    match result {
+        Ok(_) => (StatusCode::OK, Json(json!({ "message": "已拒绝" }))),
+        Err(e) => {
+            tracing::error!("Failed to reject whitelist: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "拒绝失败" })))
+        }
+    }
+}
+
+// 删除白名单
 pub async fn delete_whitelist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
@@ -67,10 +212,10 @@ pub async fn delete_whitelist(
         .await;
 
     match result {
-        Ok(_) => (axum::http::StatusCode::OK, Json(json!({ "message": "Whitelist deleted" }))),
+        Ok(_) => (StatusCode::OK, Json(json!({ "message": "Whitelist deleted" }))),
         Err(e) => {
             tracing::error!("Failed to delete whitelist: {:?}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "Failed to delete whitelist" })))
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "Failed to delete whitelist" })))
         }
     }
 }
