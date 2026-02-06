@@ -7,6 +7,8 @@ pub struct Ban {
     pub id: i64,
     pub name: String,
     pub steam_id: String,
+    pub steam_id_3: Option<String>,
+    pub steam_id_64: Option<String>,
     pub ip: String,
     pub ban_type: String,
     pub reason: Option<String>,

@@ -10,6 +10,8 @@ pub struct Admin {
     pub password: String,
     pub role: String, // Enum in DB, String here for simplicity or use sqlx::Type
     pub steam_id: Option<String>,
+    pub steam_id_3: Option<String>,
+    pub steam_id_64: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
 }
 

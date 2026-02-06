@@ -52,25 +52,32 @@ pub async fn check_ban(
     let ip = params.ip.unwrap_or_default();
 
     // CONVERSION: Ensure SteamID is in standard SteamID2 format (STEAM_0:...) for DB lookup
-    if!steam_id.is_empty() {
-         let steam_service = SteamService::new();
-         if let Some(id64) = steam_service.resolve_steam_id(&steam_id).await {
-              if let Some(id2) = steam_service.id64_to_id2(&id64) {
-
-                   steam_id = id2;
-              }
-         }
+    // 将输入的 SteamID 转换为 steam_id_64 格式进行匹配
+    let mut steam_id_64 = String::new();
+    if !steam_id.is_empty() {
+        let steam_service = SteamService::new();
+        if let Some(id64) = steam_service.resolve_steam_id(&steam_id).await {
+            steam_id_64 = id64;
+        }
     }
     
-
-
-    // 1. Check for DIRECT Account Ban (Matches SteamID)
-    let account_ban = sqlx::query_as::<_, Ban>(
-        "SELECT * FROM bans WHERE status = 'active' AND steam_id = ? LIMIT 1"
-    )
-    .bind(&steam_id)
-    .fetch_optional(&state.db)
-    .await;
+    // 1. Check for DIRECT Account Ban (优先使用 steam_id_64 匹配)
+    let account_ban = if !steam_id_64.is_empty() {
+        sqlx::query_as::<_, Ban>(
+            "SELECT * FROM bans WHERE status = 'active' AND (steam_id_64 = ? OR steam_id = ?) LIMIT 1"
+        )
+        .bind(&steam_id_64)
+        .bind(&steam_id)
+        .fetch_optional(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, Ban>(
+            "SELECT * FROM bans WHERE status = 'active' AND steam_id = ? LIMIT 1"
+        )
+        .bind(&steam_id)
+        .fetch_optional(&state.db)
+        .await
+    };
 
     match account_ban {
         Ok(Some(mut b)) => {
@@ -151,6 +158,8 @@ pub async fn check_ban(
                         id: new_id,
                         name: "Auto-Banned".to_string(),
                         steam_id: steam_id,
+                        steam_id_3: None,
+                        steam_id_64: Some(steam_id_64.clone()),
                         ip: ip,
                         ban_type: "account".to_string(),
                         reason: Some(reason),
@@ -181,28 +190,28 @@ pub async fn check_ban(
 pub async fn create_ban(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
-    Json(mut payload): Json<CreateBanRequest>,
+    Json(payload): Json<CreateBanRequest>,
 ) -> impl IntoResponse {
     let expires_at = calculate_expires_at(&payload.duration);
 
-    // CONVERSION: Ensure SteamID is SteamID2
+    // 解析输入的 SteamID 为各种格式
     let steam_service = SteamService::new();
-    if let Some(id64) = steam_service.resolve_steam_id(&payload.steam_id).await {
-         if let Some(id2) = steam_service.id64_to_id2(&id64) {
-
-             payload.steam_id = id2;
-         } else {
-             tracing::warn!("CREATE_BAN: Failed to convert ID64 {} to ID2", id64);
-         }
-    } else {
-         tracing::warn!("CREATE_BAN: Failed to resolve SteamID {}", payload.steam_id);
-    }
+    let steam_id_64 = steam_service.resolve_steam_id(&payload.steam_id).await
+        .unwrap_or_else(|| payload.steam_id.clone());
+    
+    let steam_id_2 = steam_service.id64_to_id2(&steam_id_64)
+        .unwrap_or_else(|| payload.steam_id.clone());
+    
+    let steam_id_3 = steam_service.id64_to_id3(&steam_id_64)
+        .unwrap_or_default();
 
     let result = sqlx::query(
-        "INSERT INTO bans (name, steam_id, ip, ban_type, reason, duration, admin_name, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO bans (name, steam_id, steam_id_3, steam_id_64, ip, ban_type, reason, duration, admin_name, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&payload.name)
-    .bind(&payload.steam_id)
+    .bind(&steam_id_2)
+    .bind(&steam_id_3)
+    .bind(&steam_id_64)
     .bind(&payload.ip)
     .bind(&payload.ban_type)
     .bind(&payload.reason)
@@ -218,7 +227,7 @@ pub async fn create_ban(
                 &state.db, 
                 &user.sub, 
                 "create_ban", 
-                &format!("User: {}, SteamID: {}", payload.name, payload.steam_id), 
+                &format!("User: {}, SteamID64: {}", payload.name, steam_id_64), 
                 &format!("Reason: {}, Duration: {}", payload.reason.clone().unwrap_or_default(), payload.duration)
             ).await;
             (StatusCode::CREATED, Json("Ban created")).into_response()

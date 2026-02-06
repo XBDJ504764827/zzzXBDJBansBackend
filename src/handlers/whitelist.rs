@@ -6,8 +6,6 @@ use axum::{
 use std::sync::Arc;
 use crate::{AppState, models::whitelist::{Whitelist, CreateWhitelistRequest}};
 use serde_json::json;
-
-// ... imports
 use crate::services::steam_api::SteamService;
 
 pub async fn list_whitelist(
@@ -26,25 +24,26 @@ pub async fn list_whitelist(
 
 pub async fn create_whitelist(
     State(state): State<Arc<AppState>>,
-    Json(mut payload): Json<CreateWhitelistRequest>,
+    Json(payload): Json<CreateWhitelistRequest>,
 ) -> impl IntoResponse {
-    // CONVERSION: Ensure SteamID is SteamID2
     let steam_service = SteamService::new();
-    if let Some(id64) = steam_service.resolve_steam_id(&payload.steam_id).await {
-         if let Some(id2) = steam_service.id64_to_id2(&id64) {
-
-             payload.steam_id = id2;
-         } else {
-             tracing::warn!("CREATE_WHITELIST: Failed to convert ID64 {} to ID2", id64);
-         }
-    } else {
-         tracing::warn!("CREATE_WHITELIST: Failed to resolve SteamID {}", payload.steam_id);
-    }
+    
+    // 解析输入的 SteamID 为各种格式
+    let steam_id_64 = steam_service.resolve_steam_id(&payload.steam_id).await
+        .unwrap_or_else(|| payload.steam_id.clone());
+    
+    let steam_id_2 = steam_service.id64_to_id2(&steam_id_64)
+        .unwrap_or_else(|| payload.steam_id.clone());
+    
+    let steam_id_3 = steam_service.id64_to_id3(&steam_id_64)
+        .unwrap_or_default();
 
     let result = sqlx::query(
-        "INSERT INTO whitelist (steam_id, name, status) VALUES (?, ?, 'approved')",
+        "INSERT INTO whitelist (steam_id, steam_id_3, steam_id_64, name, status) VALUES (?, ?, ?, ?, 'approved')",
     )
-    .bind(&payload.steam_id)
+    .bind(&steam_id_2)
+    .bind(&steam_id_3)
+    .bind(&steam_id_64)
     .bind(&payload.name)
     .execute(&state.db)
     .await;

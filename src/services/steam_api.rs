@@ -231,4 +231,17 @@ impl SteamService {
         // OK, user specifically asked for STEAM_0. I will use STEAM_0.
         Some(format!("STEAM_0:{}:{}", y, z))
     }
+
+    /// Converts a SteamID64 string to SteamID3 format ([U:1:AccountID])
+    pub fn id64_to_id3(&self, steam_id_64: &str) -> Option<String> {
+        let id64: u64 = steam_id_64.parse().ok()?;
+        let base_num = 76561197960265728u64;
+        
+        if id64 < base_num {
+            return None;
+        }
+
+        let account_id = id64 - base_num;
+        Some(format!("[U:1:{}]", account_id))
+    }
 }
