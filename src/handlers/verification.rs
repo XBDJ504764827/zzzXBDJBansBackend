@@ -60,6 +60,11 @@ pub async fn create_verification(
 ) -> Result<Json<VerificationRecord>, String> {
     let status = payload.status.unwrap_or_else(|| "pending".to_string());
     
+    // Strict status validation
+    if !["pending", "verified", "allowed"].contains(&status.as_str()) {
+         return Err(format!("Invalid status '{}'. Allowed: pending, verified, allowed", status));
+    }
+    
     // Check if exists
     let exists: bool = sqlx::query_scalar("SELECT COUNT(*) FROM player_verifications WHERE steam_id = ?")
         .bind(&payload.steam_id)
@@ -103,6 +108,9 @@ pub async fn update_verification(
     Json(payload): Json<UpdateVerificationRequest>,
 ) -> Result<Json<VerificationRecord>, String> {
     if let Some(s) = &payload.status {
+        if !["pending", "verified", "allowed"].contains(&s.as_str()) {
+             return Err(format!("Invalid status '{}'. Allowed: pending, verified, allowed", s));
+        }
         let _ = sqlx::query("UPDATE player_verifications SET status = ? WHERE steam_id = ?")
             .bind(s)
             .bind(&steam_id)
