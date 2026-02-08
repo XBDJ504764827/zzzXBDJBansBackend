@@ -219,3 +219,21 @@ pub async fn delete_whitelist(
         }
     }
 }
+
+// 公开接口：获取所有白名单状态
+pub async fn list_public_whitelist(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    // 查询所有记录，按时间倒序
+    // 注意：这里返回了完整结构体，包含 SteamID。如果不想公开 SteamID，需要定义一个新的结构体只包含 Name, Status, Time
+    // 根据用户需求"展示白名单通过的玩家，正在审核的玩家，被拒绝的玩家"，通常需要 ID 来确认是自己
+    let list = sqlx::query_as::<_, Whitelist>("SELECT * FROM whitelist ORDER BY created_at DESC")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("Failed to fetch public whitelist: {:?}", e);
+            vec![]
+        });
+
+    Json(list)
+}

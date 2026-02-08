@@ -94,6 +94,7 @@ async fn main() {
         .route("/api/auth/change-password", axum::routing::post(handlers::auth::change_password).layer(axum::middleware::from_fn(middleware::auth_middleware)))
         // 公开路由：白名单申请（无需认证）
         .route("/api/whitelist/apply", axum::routing::post(handlers::whitelist::apply_whitelist))
+        .route("/api/whitelist/public-list", get(handlers::whitelist::list_public_whitelist))
         .merge(protected_routes)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
