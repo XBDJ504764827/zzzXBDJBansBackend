@@ -10,6 +10,16 @@ use serde_json::json;
 use crate::services::steam_api::SteamService;
 
 // 获取已审核通过的白名单列表（管理员）
+#[utoipa::path(
+    get,
+    path = "/api/whitelist",
+    responses(
+        (status = 200, description = "List approved whitelist", body = Vec<Whitelist>)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn list_whitelist(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -25,6 +35,16 @@ pub async fn list_whitelist(
 }
 
 // 获取待审核的申请列表（管理员）
+#[utoipa::path(
+    get,
+    path = "/api/whitelist/pending",
+    responses(
+        (status = 200, description = "List pending applications", body = Vec<Whitelist>)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn list_pending(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -40,6 +60,16 @@ pub async fn list_pending(
 }
 
 // 获取已拒绝的申请列表（管理员）
+#[utoipa::path(
+    get,
+    path = "/api/whitelist/rejected",
+    responses(
+        (status = 200, description = "List rejected applications", body = Vec<Whitelist>)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn list_rejected(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -55,6 +85,16 @@ pub async fn list_rejected(
 }
 
 // 玩家提交申请（公开接口，无需认证）
+#[utoipa::path(
+    post,
+    path = "/api/whitelist/apply",
+    request_body = ApplyWhitelistRequest,
+    responses(
+        (status = 201, description = "Application submitted"),
+        (status = 400, description = "Invalid format"),
+        (status = 409, description = "Already exists")
+    )
+)]
 pub async fn apply_whitelist(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ApplyWhitelistRequest>,
@@ -121,6 +161,18 @@ pub async fn apply_whitelist(
 }
 
 // 管理员添加白名单（直接通过）
+#[utoipa::path(
+    post,
+    path = "/api/whitelist",
+    request_body = CreateWhitelistRequest,
+    responses(
+        (status = 201, description = "Whitelist added manually"),
+        (status = 400, description = "Bad request")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn create_whitelist(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateWhitelistRequest>,
@@ -164,6 +216,19 @@ pub async fn create_whitelist(
 }
 
 // 审核通过
+#[utoipa::path(
+    put,
+    path = "/api/whitelist/{id}/approve",
+    params(
+        ("id" = i64, Path, description = "Whitelist ID")
+    ),
+    responses(
+        (status = 200, description = "Application approved")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn approve_whitelist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
@@ -183,6 +248,19 @@ pub async fn approve_whitelist(
 }
 
 // 审核拒绝
+#[utoipa::path(
+    put,
+    path = "/api/whitelist/{id}/reject",
+    params(
+        ("id" = i64, Path, description = "Whitelist ID")
+    ),
+    responses(
+        (status = 200, description = "Application rejected")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn reject_whitelist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
@@ -202,6 +280,19 @@ pub async fn reject_whitelist(
 }
 
 // 删除白名单
+#[utoipa::path(
+    delete,
+    path = "/api/whitelist/{id}",
+    params(
+        ("id" = i64, Path, description = "Whitelist ID")
+    ),
+    responses(
+        (status = 200, description = "Entry deleted")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn delete_whitelist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
@@ -221,6 +312,13 @@ pub async fn delete_whitelist(
 }
 
 // 公开接口：获取所有白名单状态
+#[utoipa::path(
+    get,
+    path = "/api/whitelist/public-list",
+    responses(
+        (status = 200, description = "Public whitelist check", body = Vec<Whitelist>)
+    )
+)]
 pub async fn list_public_whitelist(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {

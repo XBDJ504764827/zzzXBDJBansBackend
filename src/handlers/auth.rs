@@ -7,7 +7,7 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 use crate::AppState;
-use crate::models::user::{LoginRequest, LoginResponse};
+use crate::models::user::{LoginRequest, LoginResponse, ChangePasswordRequest};
 use bcrypt::verify;
 use jsonwebtoken::{encode, Header, EncodingKey};
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,15 @@ pub struct Claims {
     pub exp: usize,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/login",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Login successful", body = LoginResponse),
+        (status = 401, description = "Unauthorized")
+    )
+)]
 pub async fn login(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<LoginRequest>,
@@ -67,12 +76,29 @@ pub async fn login(
     (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Invalid credentials" }))).into_response()
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/logout",
+    responses(
+        (status = 200, description = "Logged out")
+    )
+)]
 pub async fn logout() -> impl IntoResponse {
     // Stateless JWT, client just drops token. 
     // We can blacklist token in Redis if stricter.
     (StatusCode::OK, Json(json!({ "msg": "Logged out" })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/auth/me",
+    responses(
+        (status = 200, description = "Current user info")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn me() -> impl IntoResponse {
     // Need middleware to extract claims. For now placeholder.
     (StatusCode::OK, Json(json!({ "msg": "Me" })))
@@ -80,6 +106,19 @@ pub async fn me() -> impl IntoResponse {
 
 use bcrypt::{hash, DEFAULT_COST};
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/change-password",
+    request_body = ChangePasswordRequest,
+    responses(
+        (status = 200, description = "Password changed successfully"),
+        (status = 400, description = "Invalid old password"),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn change_password(
     State(state): State<Arc<AppState>>,
     axum::extract::Extension(user): axum::extract::Extension<Claims>,

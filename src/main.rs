@@ -2,6 +2,8 @@ use axum::{
     routing::get,
     Router,
 };
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 use dotenvy::dotenv;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -15,6 +17,103 @@ mod middleware;
 mod utils;
 mod bg_task;
 mod services;
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        handlers::auth::login,
+        handlers::auth::logout,
+        handlers::auth::me,
+        handlers::auth::change_password,
+        handlers::admin::list_admins,
+        handlers::admin::create_admin,
+        handlers::admin::update_admin,
+        handlers::admin::delete_admin,
+        handlers::ban::list_bans,
+        handlers::ban::check_ban,
+        handlers::ban::create_ban,
+        handlers::ban::update_ban,
+        handlers::ban::delete_ban,
+        handlers::whitelist::list_whitelist,
+        handlers::whitelist::list_pending,
+        handlers::whitelist::list_rejected,
+        handlers::whitelist::apply_whitelist,
+        handlers::whitelist::create_whitelist,
+        handlers::whitelist::approve_whitelist,
+        handlers::whitelist::reject_whitelist,
+        handlers::whitelist::delete_whitelist,
+        handlers::whitelist::list_public_whitelist,
+        handlers::server::list_server_groups,
+        handlers::server::create_group,
+        handlers::server::delete_group,
+        handlers::server::create_server,
+        handlers::server::update_server,
+        handlers::server::delete_server,
+        handlers::server::check_server_status,
+        handlers::server::get_server_players,
+        handlers::server::kick_player,
+        handlers::server::ban_player,
+        handlers::log::list_logs,
+        handlers::log::create_log,
+        handlers::verification::list_verifications,
+        handlers::verification::create_verification,
+        handlers::verification::update_verification,
+        handlers::verification::delete_verification,
+    ),
+    components(
+        schemas(
+            models::user::Admin,
+            models::user::CreateAdminRequest,
+            models::user::UpdateAdminRequest,
+            models::user::LoginRequest,
+            models::user::LoginResponse,
+            models::user::ChangePasswordRequest,
+            models::ban::Ban,
+            models::ban::CreateBanRequest,
+            models::ban::UpdateBanRequest,
+            models::whitelist::Whitelist,
+            models::whitelist::CreateWhitelistRequest,
+            models::whitelist::ApplyWhitelistRequest,
+            models::server::ServerGroup,
+            models::server::GroupWithServers,
+            models::server::Server,
+            models::server::CreateGroupRequest,
+            models::server::CreateServerRequest,
+            models::server::UpdateServerRequest,
+            models::server::CheckServerRequest,
+            handlers::server::Player,
+            handlers::server::KickPlayerRequest,
+            handlers::server::BanPlayerRequest,
+            models::log::AuditLog,
+            models::log::CreateLogRequest,
+            handlers::verification::VerificationRecord,
+            handlers::verification::CreateVerificationRequest,
+            handlers::verification::UpdateVerificationRequest,
+        )
+    ),
+    tags(
+        (name = "zzzXBDJBans", description = "Backend API")
+    ),
+    modifiers(&SecurityAddon)
+)]
+struct ApiDoc;
+
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "jwt",
+                utoipa::openapi::security::SecurityScheme::Http(
+                    utoipa::openapi::security::Http::new(
+                        utoipa::openapi::security::HttpAuthScheme::Bearer,
+                    ),
+                ),
+            )
+        }
+    }
+}
 
 // Application State
 pub struct AppState {
@@ -96,6 +195,7 @@ async fn main() {
         .route("/api/whitelist/apply", axum::routing::post(handlers::whitelist::apply_whitelist))
         .route("/api/whitelist/public-list", get(handlers::whitelist::list_public_whitelist))
         .merge(protected_routes)
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);

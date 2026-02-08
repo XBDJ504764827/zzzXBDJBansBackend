@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use chrono::{DateTime, Utc};
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone, ToSchema)]
 pub struct Ban {
     pub id: i64,
     pub name: String,
@@ -20,7 +21,7 @@ pub struct Ban {
     pub server_id: Option<i64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateBanRequest {
     pub name: String,
     pub steam_id: String,
@@ -31,7 +32,7 @@ pub struct CreateBanRequest {
     pub admin_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UpdateBanRequest {
     pub name: Option<String>,
     pub steam_id: Option<String>,

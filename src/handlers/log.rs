@@ -8,6 +8,16 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::models::log::{AuditLog, CreateLogRequest};
 
+#[utoipa::path(
+    get,
+    path = "/api/logs",
+    responses(
+        (status = 200, description = "List logs", body = Vec<AuditLog>)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn list_logs(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -21,6 +31,17 @@ pub async fn list_logs(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/logs",
+    request_body = CreateLogRequest,
+    responses(
+        (status = 201, description = "Log created")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn create_log(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateLogRequest>,

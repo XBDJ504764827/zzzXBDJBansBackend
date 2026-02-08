@@ -15,6 +15,16 @@ use crate::utils::rcon::check_rcon;
 
 // --- Groups ---
 
+#[utoipa::path(
+    get,
+    path = "/api/server-groups",
+    responses(
+        (status = 200, description = "List server groups with servers", body = Vec<GroupWithServers>)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn list_server_groups(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -57,6 +67,18 @@ pub async fn list_server_groups(
     (StatusCode::OK, Json(result)).into_response()
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/server-groups",
+    request_body = CreateGroupRequest,
+    responses(
+        (status = 201, description = "Group created"),
+        (status = 500, description = "Server Error")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn create_group(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -76,6 +98,19 @@ pub async fn create_group(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/server-groups/{id}",
+    params(
+        ("id" = i64, Path, description = "Group ID")
+    ),
+    responses(
+        (status = 200, description = "Group deleted")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn delete_group(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -97,6 +132,17 @@ pub async fn delete_group(
 
 // --- Servers ---
 
+#[utoipa::path(
+    post,
+    path = "/api/servers",
+    request_body = CreateServerRequest,
+    responses(
+        (status = 201, description = "Server created")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn create_server(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -123,6 +169,20 @@ pub async fn create_server(
     }
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/servers/{id}",
+    params(
+        ("id" = i64, Path, description = "Server ID")
+    ),
+    request_body = UpdateServerRequest,
+    responses(
+        (status = 200, description = "Server updated")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn update_server(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -150,6 +210,19 @@ pub async fn update_server(
     (StatusCode::OK, Json("Server updated")).into_response()
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/servers/{id}",
+    params(
+        ("id" = i64, Path, description = "Server ID")
+    ),
+    responses(
+        (status = 200, description = "Server deleted")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn delete_server(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -171,6 +244,18 @@ pub async fn delete_server(
 
 // --- Status Check ---
 
+#[utoipa::path(
+    post,
+    path = "/api/servers/check",
+    request_body = CheckServerRequest,
+    responses(
+        (status = 200, description = "Connected successfully"),
+        (status = 400, description = "Connection failed")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn check_server_status(
     Json(payload): Json<CheckServerRequest>,
 ) -> impl IntoResponse {
@@ -200,7 +285,7 @@ use serde::{Serialize, Deserialize};
 use regex::Regex;
 use crate::utils::rcon::send_command;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Player {
     pub userid: i32,
     pub name: String,
@@ -209,19 +294,33 @@ pub struct Player {
     pub ping: i32,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct KickPlayerRequest {
     pub userid: i32,
     pub reason: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct BanPlayerRequest {
     pub userid: i32,
     pub duration: i32, // minutes, 0 = permanent
     pub reason: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/servers/{id}/players",
+    params(
+        ("id" = i64, Path, description = "Server ID")
+    ),
+    responses(
+        (status = 200, description = "List players", body = Vec<Player>),
+        (status = 404, description = "Server not found")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn get_server_players(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
@@ -273,6 +372,20 @@ pub async fn get_server_players(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/servers/{id}/kick",
+    params(
+        ("id" = i64, Path, description = "Server ID")
+    ),
+    request_body = KickPlayerRequest,
+    responses(
+        (status = 200, description = "Player kicked")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn kick_player(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -312,6 +425,20 @@ pub async fn kick_player(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/servers/{id}/ban",
+    params(
+        ("id" = i64, Path, description = "Server ID")
+    ),
+    request_body = BanPlayerRequest,
+    responses(
+        (status = 200, description = "Player banned")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn ban_player(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,

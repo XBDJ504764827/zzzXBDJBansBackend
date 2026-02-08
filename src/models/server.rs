@@ -1,15 +1,16 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use chrono::{DateTime, Utc};
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ServerGroup {
     pub id: i64,
     pub name: String,
     pub created_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Server {
     pub id: i64,
     pub group_id: i64,
@@ -23,19 +24,19 @@ pub struct Server {
 }
 
 // Responses often group servers by group
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GroupWithServers {
     pub id: i64,
     pub name: String,
     pub servers: Vec<Server>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateGroupRequest {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateServerRequest {
     pub group_id: i64,
     pub name: String,
@@ -45,7 +46,7 @@ pub struct CreateServerRequest {
     pub verification_enabled: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateServerRequest {
     pub name: Option<String>,
     pub ip: Option<String>,
@@ -54,7 +55,7 @@ pub struct UpdateServerRequest {
     pub verification_enabled: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CheckServerRequest {
     pub ip: String,
     pub port: u16,

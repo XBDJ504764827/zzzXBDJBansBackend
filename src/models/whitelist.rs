@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Whitelist {
     pub id: i64,
     pub steam_id: String,
@@ -12,14 +13,14 @@ pub struct Whitelist {
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateWhitelistRequest {
     pub steam_id: String,
     pub name: String,
 }
 
 // 玩家申请白名单的请求
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ApplyWhitelistRequest {
     pub steam_id: String,
     pub name: String,

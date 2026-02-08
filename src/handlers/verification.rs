@@ -8,8 +8,9 @@ use crate::AppState;
 use std::sync::Arc;
 use sqlx::Row;
 use chrono::{DateTime, Utc};
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct VerificationRecord {
     pub steam_id: String,
     pub status: String,
@@ -20,19 +21,29 @@ pub struct VerificationRecord {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CreateVerificationRequest {
     pub steam_id: String,
     pub status: Option<String>, // 'pending', 'allowed', 'denied'
     pub reason: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct UpdateVerificationRequest {
     pub status: Option<String>,
     pub reason: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/verifications",
+    responses(
+        (status = 200, description = "List verification records", body = Vec<VerificationRecord>)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn list_verifications(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<VerificationRecord>>, String> {
@@ -54,6 +65,18 @@ pub async fn list_verifications(
     Ok(Json(records))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/verifications",
+    request_body = CreateVerificationRequest,
+    responses(
+        (status = 200, description = "Record created", body = VerificationRecord),
+        (status = 500, description = "Already exists or error")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn create_verification(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateVerificationRequest>,
@@ -102,6 +125,20 @@ pub async fn create_verification(
     }))
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/verifications/{steam_id}",
+    params(
+        ("steam_id" = String, Path, description = "Steam ID")
+    ),
+    request_body = UpdateVerificationRequest,
+    responses(
+        (status = 200, description = "Record updated", body = VerificationRecord)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn update_verification(
     State(state): State<Arc<AppState>>,
     Path(steam_id): Path<String>,
@@ -146,6 +183,19 @@ pub async fn update_verification(
     }))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/verifications/{steam_id}",
+    params(
+        ("steam_id" = String, Path, description = "Steam ID")
+    ),
+    responses(
+        (status = 204, description = "Record deleted")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn delete_verification(
     State(state): State<Arc<AppState>>,
     Path(steam_id): Path<String>,

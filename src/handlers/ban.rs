@@ -18,6 +18,16 @@ pub struct BanFilter {
     ip: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/bans",
+    responses(
+        (status = 200, description = "List all bans", body = Vec<Ban>)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn list_bans(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -40,6 +50,21 @@ pub async fn list_bans(
 use crate::services::steam_api::SteamService;
 
 // ... check_ban
+#[utoipa::path(
+    get,
+    path = "/api/check_ban",
+    params(
+        ("steam_id" = Option<String>, Query, description = "SteamID to check"),
+        ("ip" = Option<String>, Query, description = "IP to check")
+    ),
+    responses(
+        (status = 200, description = "Ban details if banned", body = Ban),
+        (status = 404, description = "Not banned")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn check_ban(
     State(state): State<Arc<AppState>>,
     Query(params): Query<BanFilter>,
@@ -48,7 +73,7 @@ pub async fn check_ban(
         return (StatusCode::BAD_REQUEST, "Missing steam_id or ip").into_response();
     }
     
-    let mut steam_id = params.steam_id.unwrap_or_default();
+    let steam_id = params.steam_id.unwrap_or_default();
     let ip = params.ip.unwrap_or_default();
 
     // CONVERSION: Ensure SteamID is in standard SteamID2 format (STEAM_0:...) for DB lookup
@@ -80,7 +105,7 @@ pub async fn check_ban(
     };
 
     match account_ban {
-        Ok(Some(mut b)) => {
+        Ok(Some(b)) => {
 
             // Check expiration
             if let Some(expires_at) = b.expires_at {
@@ -115,7 +140,7 @@ pub async fn check_ban(
     .await;
 
     match ip_ban {
-        Ok(Some(mut b)) => {
+        Ok(Some(b)) => {
 
              // Check expiration for the IP ban
             if let Some(expires_at) = b.expires_at {
@@ -187,6 +212,18 @@ pub async fn check_ban(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/bans",
+    request_body = CreateBanRequest,
+    responses(
+        (status = 201, description = "Ban created"),
+        (status = 400, description = "Bad request")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn create_ban(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -236,6 +273,21 @@ pub async fn create_ban(
     }
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/bans/{id}",
+    params(
+        ("id" = i64, Path, description = "Ban ID")
+    ),
+    request_body = UpdateBanRequest,
+    responses(
+        (status = 200, description = "Ban updated"),
+        (status = 404, description = "Ban not found")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn update_ban(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -291,6 +343,21 @@ pub async fn update_ban(
     (StatusCode::OK, Json("Ban updated")).into_response()
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/bans/{id}",
+    params(
+        ("id" = i64, Path, description = "Ban ID")
+    ),
+    responses(
+        (status = 200, description = "Ban deleted"),
+        (status = 404, description = "Ban not found"),
+        (status = 403, description = "Forbidden")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn delete_ban(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -344,7 +411,7 @@ pub async fn delete_ban(
                     .await;
 
                 if let Ok(servers) = servers_result {
-                    let ban_clone = ban.clone(); // Ban struct needs simple Clone derive or manual clone
+                    let _ban_clone = ban.clone(); // Ban struct needs simple Clone derive or manual clone
                     // If Ban doesn't implement Clone, we might need to construct a lightweight struct or ensure it does.
                     // Assuming Ban implements Clone (it normally derives FromRow, Debug, Serialize, Deserialize - let's check or just clone fields)
                     // Let's manually reconstruct or assume Clone if easy. 

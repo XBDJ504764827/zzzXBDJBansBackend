@@ -12,6 +12,16 @@ use crate::utils::log_admin_action;
 use crate::services::steam_api::SteamService;
 use bcrypt::{hash, DEFAULT_COST};
 
+#[utoipa::path(
+    get,
+    path = "/api/admins",
+    responses(
+        (status = 200, description = "List all admins", body = Vec<Admin>)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn list_admins(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -25,6 +35,18 @@ pub async fn list_admins(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/admins",
+    request_body = CreateAdminRequest,
+    responses(
+        (status = 201, description = "Admin created"),
+        (status = 400, description = "Bad request")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn create_admin(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -73,6 +95,21 @@ pub async fn create_admin(
     }
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/admins/{id}",
+    params(
+        ("id" = i64, Path, description = "Admin ID")
+    ),
+    request_body = UpdateAdminRequest,
+    responses(
+        (status = 200, description = "Admin updated"),
+        (status = 404, description = "Admin not found")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn update_admin(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
@@ -123,6 +160,20 @@ pub async fn update_admin(
     (StatusCode::OK, Json("Admin updated")).into_response()
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/admins/{id}",
+    params(
+        ("id" = i64, Path, description = "Admin ID")
+    ),
+    responses(
+        (status = 200, description = "Admin deleted"),
+        (status = 404, description = "Admin not found")
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
 pub async fn delete_admin(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<Claims>,
