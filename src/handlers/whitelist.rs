@@ -7,7 +7,7 @@ use axum::{
 use std::sync::Arc;
 use crate::{AppState, models::whitelist::{Whitelist, CreateWhitelistRequest, ApplyWhitelistRequest}};
 use serde_json::json;
-use crate::services::steam_api::SteamService;
+use crate::services::steam_api::{SteamService, PlayerSummary};
 
 // 获取已审核通过的白名单列表（管理员）
 #[utoipa::path(
@@ -334,4 +334,38 @@ pub async fn list_public_whitelist(
         });
 
     Json(list)
+}
+
+// 获取玩家 Steam 信息（公开接口）
+#[utoipa::path(
+    get,
+    path = "/api/whitelist/player-info",
+    params(
+        ("steam_id" = String, Query, description = "Steam ID (any format)")
+    ),
+    responses(
+        (status = 200, description = "Player info found", body = PlayerSummary),
+        (status = 404, description = "Player not found"),
+        (status = 400, description = "Invalid Steam ID")
+    )
+)]
+pub async fn get_player_info(
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let steam_id = params.get("steam_id");
+    if steam_id.is_none() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Missing steam_id" }))).into_response();
+    }
+    let steam_id = steam_id.unwrap();
+
+    let steam_service = SteamService::new();
+    let steam_id_64_opt = steam_service.resolve_steam_id(steam_id).await;
+
+    if let Some(steam_id_64) = steam_id_64_opt {
+        if let Some(summary) = steam_service.get_player_summary(&steam_id_64).await {
+             return (StatusCode::OK, Json(summary)).into_response();
+        }
+    }
+
+    (StatusCode::NOT_FOUND, Json(json!({ "error": "Player not found" }))).into_response()
 }

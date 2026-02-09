@@ -1,5 +1,6 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use regex::Regex;
+use utoipa::ToSchema;
 
 #[derive(Debug, Deserialize)]
 struct SteamLevelResponse {
@@ -42,6 +43,24 @@ struct ResolveVanityData {
     success: i32,
     steamid: Option<String>,
 }
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct PlayerSummaryResponse {
+    pub response: PlayerSummaryData,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct PlayerSummaryData {
+    pub players: Vec<PlayerSummary>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, ToSchema)]
+pub struct PlayerSummary {
+    pub steamid: String,
+    pub personaname: String,
+    pub avatarfull: String,
+    pub profileurl: String,
+}
+
 
 pub struct SteamService {
     client: reqwest::Client,
@@ -243,5 +262,23 @@ impl SteamService {
 
         let account_id = id64 - base_num;
         Some(format!("[U:1:{}]", account_id))
+    }
+    pub async fn get_player_summary(&self, steam_id_64: &str) -> Option<PlayerSummary> {
+        let url = format!(
+            "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={}&steamids={}",
+            &self.api_key, steam_id_64
+        );
+
+        match self.client.get(&url).send().await {
+            Ok(resp) => {
+                if let Ok(data) = resp.json::<PlayerSummaryResponse>().await {
+                    if let Some(player) = data.response.players.first() {
+                        return Some(player.clone());
+                    }
+                }
+            }
+            Err(e) => tracing::error!("Steam API Summary Error: {}", e),
+        }
+        None
     }
 }

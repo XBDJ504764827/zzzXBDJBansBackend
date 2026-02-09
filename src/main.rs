@@ -43,6 +43,7 @@ mod services;
         handlers::whitelist::reject_whitelist,
         handlers::whitelist::delete_whitelist,
         handlers::whitelist::list_public_whitelist,
+        handlers::whitelist::get_player_info,
         handlers::server::list_server_groups,
         handlers::server::create_group,
         handlers::server::delete_group,
@@ -74,6 +75,7 @@ mod services;
             models::whitelist::Whitelist,
             models::whitelist::CreateWhitelistRequest,
             models::whitelist::ApplyWhitelistRequest,
+            crate::services::steam_api::PlayerSummary,
             models::server::ServerGroup,
             models::server::GroupWithServers,
             models::server::Server,
@@ -194,6 +196,7 @@ async fn main() {
         // 公开路由：白名单申请（无需认证）
         .route("/api/whitelist/apply", axum::routing::post(handlers::whitelist::apply_whitelist))
         .route("/api/whitelist/public-list", get(handlers::whitelist::list_public_whitelist))
+        .route("/api/whitelist/player-info", get(handlers::whitelist::get_player_info))
         .merge(protected_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
