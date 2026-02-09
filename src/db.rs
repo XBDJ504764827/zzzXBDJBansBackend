@@ -27,7 +27,7 @@ pub async fn establish_connection() -> MySqlPool {
     }
 
     MySqlPoolOptions::new()
-        .max_connections(5)
+        .max_connections(20)
         .connect(&database_url)
         .await
         .expect("Failed to create pool")

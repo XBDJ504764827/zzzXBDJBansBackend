@@ -53,30 +53,28 @@ async fn check_all_servers(state: &Arc<AppState>) -> Result<(), Box<dyn std::err
                     
                     // Format: # <userid> <slot> "Name" <SteamID> ...
                     // Split by quote to isolate name
-                    let parts: Vec<&str> = line.split('"').collect();
-                    if parts.len() < 3 { continue; }
-                    
-                    // Parse UserID from Part 0: "# 123 "
-                    let pre_name = parts[0].trim();
+                    // Robust parsing: Find name between first and last quotes
+                    let first_quote = match line.find('"') {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+                    let last_quote = match line.rfind('"') {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+
+                    if first_quote >= last_quote { continue; }
+
+                    // Parse UserID from everything before first quote
+                    let pre_name = &line[..first_quote].trim();
                     let pre_parts: Vec<&str> = pre_name.split_whitespace().collect();
-                    // usually ["#", "123", "1"] or just ["#", "123"] depending on output format
-                    // Let's assume the component after "#" is userid
-                    let mut userid = "";
-                    for (i, p) in pre_parts.iter().enumerate() {
-                        if *p == "#" && i + 1 < pre_parts.len() {
-                            userid = pre_parts[i+1];
-                            break;
-                        }
-                    }
-                    if userid.is_empty() { 
-                         // Fallback: try last element
-                         userid = pre_parts.last().unwrap_or(&"");
-                    }
-                    if userid == "#" { continue; } // Failed parsing
+                    let userid = pre_parts.last().unwrap_or(&"");
 
-                    let player_name = parts[1]; // Real Name!
+                    if *userid == "#" || userid.is_empty() { continue; }
 
-                    let after_name = parts[2].trim(); // STEAM_... ... IP:Port
+                    let player_name = &line[first_quote+1..last_quote]; // Real Name
+
+                    let after_name = &line[last_quote+1..].trim(); // STEAM_... ... IP:Port
                     let fields: Vec<&str> = after_name.split_whitespace().collect();
                     
                     if fields.len() < 2 { continue; }

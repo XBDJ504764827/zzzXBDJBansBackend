@@ -2,39 +2,48 @@ use std::time::Duration;
 use sqlx::{MySqlPool, Row};
 use crate::services::steam_api::SteamService;
 
+use futures::stream::{self, StreamExt};
+use std::sync::Arc;
+
 pub async fn start_verification_worker(pool: MySqlPool) {
-    let steam_service = SteamService::new();
+    let steam_service = Arc::new(SteamService::new());
     tracing::info!("Verification Worker started.");
 
     loop {
         // 1. Priority: Manual Verifications
-        if let Ok(rows) = sqlx::query("SELECT steam_id FROM player_verifications WHERE status = 'pending' LIMIT 10")
+        if let Ok(rows) = sqlx::query("SELECT steam_id FROM player_verifications WHERE status = 'pending' LIMIT 20")
             .fetch_all(&pool)
             .await
         {
-            for row in rows {
-                let steam_id: String = row.get("steam_id");
-                if let Err(e) = fetch_and_save_data(&pool, &steam_service, &steam_id, "player_verifications").await {
-                    tracing::error!("Verification error for {}: {:?}", steam_id, e);
-                }
-            }
+            process_batch(&pool, &steam_service, rows, "player_verifications").await;
         }
 
         // 2. Secondary: Player Cache
-        if let Ok(rows) = sqlx::query("SELECT steam_id FROM player_cache WHERE status = 'pending' LIMIT 10")
+        if let Ok(rows) = sqlx::query("SELECT steam_id FROM player_cache WHERE status = 'pending' LIMIT 20")
             .fetch_all(&pool)
             .await
         {
-            for row in rows {
-                let steam_id: String = row.get("steam_id");
-                if let Err(e) = fetch_and_save_data(&pool, &steam_service, &steam_id, "player_cache").await {
-                    tracing::error!("Verification error for {}: {:?}", steam_id, e);
-                }
-            }
+            process_batch(&pool, &steam_service, rows, "player_cache").await;
         }
 
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
+}
+
+async fn process_batch(pool: &MySqlPool, steam_service: &Arc<SteamService>, rows: Vec<sqlx::mysql::MySqlRow>, table: &str) {
+    stream::iter(rows)
+        .for_each_concurrent(10, |row| {
+            let pool = pool.clone();
+            let steam_service = steam_service.clone();
+            let table = table.to_string(); // String is cheap enough for 20 items
+            async move {
+                let steam_id: String = row.get("steam_id");
+                if let Err(e) = fetch_and_save_data(&pool, &steam_service, &steam_id, &table).await {
+                     tracing::error!("Verification error for {}: {:?}", steam_id, e);
+                }
+            }
+        })
+        .await;
 }
 
 /// 从 API 获取数据并保存到数据库

@@ -26,3 +26,4 @@ byteorder = "1.5.0"
 reqwest = { version = "0.12.12", features = ["json"] }
 utoipa = { version = "5.3.1", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-swagger-ui = { version = "8.1.0", features = ["axum"] }
+futures = "0.3"
