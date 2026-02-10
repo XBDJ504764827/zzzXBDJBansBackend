@@ -6,7 +6,7 @@ use axum::{
 };
 use std::sync::Arc;
 use crate::AppState;
-use crate::models::ban::{Ban, CreateBanRequest, UpdateBanRequest};
+use crate::models::ban::{Ban, PublicBan, CreateBanRequest, UpdateBanRequest};
 use crate::handlers::auth::Claims;
 use crate::utils::{log_admin_action, calculate_expires_at};
 use chrono::Utc;
@@ -39,6 +39,34 @@ pub async fn list_bans(
     let bans = sqlx::query_as::<_, Ban>("SELECT * FROM bans ORDER BY created_at DESC")
         .fetch_all(&state.db)
         .await;
+
+    match bans {
+        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/bans/public",
+    responses(
+        (status = 200, description = "List public bans", body = Vec<PublicBan>)
+    )
+)]
+pub async fn list_public_bans(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    // Lazy expire check: Update all active bans that have expired
+    let _ = sqlx::query("UPDATE bans SET status = 'expired' WHERE status = 'active' AND expires_at < NOW()")
+        .execute(&state.db)
+        .await;
+
+    // Select specific columns to avoid exposing IP
+    let bans = sqlx::query_as::<_, PublicBan>(
+        "SELECT id, name, steam_id, steam_id_3, steam_id_64, reason, duration, status, admin_name, created_at, expires_at FROM bans ORDER BY created_at DESC"
+    )
+    .fetch_all(&state.db)
+    .await;
 
     match bans {
         Ok(data) => (StatusCode::OK, Json(data)).into_response(),

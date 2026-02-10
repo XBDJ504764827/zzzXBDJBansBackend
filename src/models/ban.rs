@@ -21,6 +21,21 @@ pub struct Ban {
     pub server_id: Option<i64>,
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct PublicBan {
+    pub id: i64,
+    pub name: String,
+    pub steam_id: String,
+    pub steam_id_3: Option<String>,
+    pub steam_id_64: Option<String>,
+    pub reason: Option<String>,
+    pub duration: String,
+    pub status: String,
+    pub admin_name: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateBanRequest {
     pub name: String,

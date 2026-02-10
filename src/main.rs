@@ -30,6 +30,7 @@ mod services;
         handlers::admin::update_admin,
         handlers::admin::delete_admin,
         handlers::ban::list_bans,
+        handlers::ban::list_public_bans,
         handlers::ban::check_ban,
         handlers::ban::create_ban,
         handlers::ban::update_ban,
@@ -70,6 +71,8 @@ mod services;
             models::user::LoginResponse,
             models::user::ChangePasswordRequest,
             models::ban::Ban,
+            models::ban::PublicBan,
+            models::ban::CreateBanRequest,
             models::ban::CreateBanRequest,
             models::ban::UpdateBanRequest,
             models::whitelist::Whitelist,
@@ -192,11 +195,11 @@ async fn main() {
     let app = Router::new()
         .route("/", get(root))
         .route("/api/auth/login", axum::routing::post(handlers::auth::login))
-        .route("/api/auth/change-password", axum::routing::post(handlers::auth::change_password).layer(axum::middleware::from_fn(middleware::auth_middleware)))
         // 公开路由：白名单申请（无需认证）
         .route("/api/whitelist/apply", axum::routing::post(handlers::whitelist::apply_whitelist))
         .route("/api/whitelist/public-list", get(handlers::whitelist::list_public_whitelist))
         .route("/api/whitelist/player-info", get(handlers::whitelist::get_player_info))
+        .route("/api/bans/public", get(handlers::ban::list_public_bans))
         .merge(protected_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
