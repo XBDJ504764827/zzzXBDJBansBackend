@@ -69,7 +69,7 @@ pub async fn create_admin(
     };
 
     let result = sqlx::query(
-        "INSERT INTO admins (username, password, role, steam_id, steam_id_3, steam_id_64) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO admins (username, password, role, steam_id, steam_id_3, steam_id_64, remark) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&payload.username)
     .bind(hashed)
@@ -77,6 +77,7 @@ pub async fn create_admin(
     .bind(&steam_id_2)
     .bind(&steam_id_3)
     .bind(&steam_id_64)
+    .bind(&payload.remark)
     .execute(&state.db)
     .await;
 
@@ -146,6 +147,12 @@ pub async fn update_admin(
             .bind(&id3)
             .bind(&id64)
             .bind(id)
+            .execute(&state.db).await;
+    }
+
+    if let Some(remark) = payload.remark {
+        let _ = sqlx::query("UPDATE admins SET remark = ? WHERE id = ?")
+            .bind(remark).bind(id)
             .execute(&state.db).await;
     }
 

@@ -14,6 +14,7 @@ pub struct Admin {
     pub steam_id_3: Option<String>,
     pub steam_id_64: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
+    pub remark: Option<String>,
 }
 
 
@@ -23,6 +24,7 @@ pub struct CreateAdminRequest {
     pub password: String,
     pub role: String,
     pub steam_id: Option<String>,
+    pub remark: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -31,6 +33,7 @@ pub struct UpdateAdminRequest {
     pub password: Option<String>,
     pub role: Option<String>,
     pub steam_id: Option<String>,
+    pub remark: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
