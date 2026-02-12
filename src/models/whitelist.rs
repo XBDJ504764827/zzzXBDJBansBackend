@@ -10,6 +10,8 @@ pub struct Whitelist {
     pub steam_id_64: Option<String>,
     pub name: String,
     pub status: String, // 'approved', 'pending', 'rejected'
+    pub reject_reason: Option<String>,
+    pub admin_name: Option<String>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -24,4 +26,9 @@ pub struct CreateWhitelistRequest {
 pub struct ApplyWhitelistRequest {
     pub steam_id: String,
     pub name: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RejectWhitelistRequest {
+    pub reason: String,
 }

@@ -1,5 +1,5 @@
 use axum::{
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use utoipa::OpenApi;
@@ -123,6 +123,7 @@ impl utoipa::Modify for SecurityAddon {
 // Application State
 pub struct AppState {
     pub db: sqlx::MySqlPool,
+    pub client: reqwest::Client,
 }
 
 #[tokio::main]
@@ -142,6 +143,7 @@ async fn main() {
 
     let state = Arc::new(AppState { 
         db: pool,
+        client: reqwest::Client::new(),
     });
 
     // Spawn background task FIRST, cloning state
@@ -165,6 +167,8 @@ async fn main() {
         .route("/api/bans", get(handlers::ban::list_bans).post(handlers::ban::create_ban))
         .route("/api/bans/:id", axum::routing::put(handlers::ban::update_ban).delete(handlers::ban::delete_ban))
         .route("/api/check_ban", get(handlers::ban::check_ban))
+        .route("/api/check_global_ban", get(handlers::ban::check_global_ban))
+        .route("/api/check_global_ban/bulk", post(handlers::ban::check_global_ban_bulk))
         // Logs
         .route("/api/logs", get(handlers::log::list_logs).post(handlers::log::create_log))
 

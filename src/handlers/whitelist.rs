@@ -1,11 +1,12 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Extension},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
+use crate::handlers::auth::Claims;
 use std::sync::Arc;
-use crate::{AppState, models::whitelist::{Whitelist, CreateWhitelistRequest, ApplyWhitelistRequest}};
+use crate::{AppState, models::whitelist::{Whitelist, CreateWhitelistRequest, ApplyWhitelistRequest, RejectWhitelistRequest}};
 use serde_json::json;
 use crate::services::steam_api::{SteamService, PlayerSummary};
 
@@ -175,6 +176,7 @@ pub async fn apply_whitelist(
 )]
 pub async fn create_whitelist(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<Claims>,
     Json(payload): Json<CreateWhitelistRequest>,
 ) -> impl IntoResponse {
     let steam_service = SteamService::new();
@@ -197,12 +199,13 @@ pub async fn create_whitelist(
 
 
     let result = sqlx::query(
-        "INSERT INTO whitelist (steam_id, steam_id_3, steam_id_64, name, status) VALUES (?, ?, ?, ?, 'approved')",
+        "INSERT INTO whitelist (steam_id, steam_id_3, steam_id_64, name, status, admin_name) VALUES (?, ?, ?, ?, 'approved', ?)",
     )
     .bind(&steam_id_2)
     .bind(&steam_id_3)
     .bind(&steam_id_64)
     .bind(&payload.name)
+    .bind(&user.sub)
     .execute(&state.db)
     .await;
 
@@ -231,9 +234,11 @@ pub async fn create_whitelist(
 )]
 pub async fn approve_whitelist(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<Claims>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    let result = sqlx::query("UPDATE whitelist SET status = 'approved' WHERE id = ?")
+    let result = sqlx::query("UPDATE whitelist SET status = 'approved', admin_name = ? WHERE id = ?")
+        .bind(&user.sub)
         .bind(id)
         .execute(&state.db)
         .await;
@@ -254,6 +259,7 @@ pub async fn approve_whitelist(
     params(
         ("id" = i64, Path, description = "Whitelist ID")
     ),
+    request_body = RejectWhitelistRequest,
     responses(
         (status = 200, description = "Application rejected")
     ),
@@ -263,9 +269,13 @@ pub async fn approve_whitelist(
 )]
 pub async fn reject_whitelist(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<Claims>,
     Path(id): Path<i64>,
+    Json(payload): Json<RejectWhitelistRequest>,
 ) -> impl IntoResponse {
-    let result = sqlx::query("UPDATE whitelist SET status = 'rejected' WHERE id = ?")
+    let result = sqlx::query("UPDATE whitelist SET status = 'rejected', reject_reason = ?, admin_name = ? WHERE id = ?")
+        .bind(&payload.reason)
+        .bind(&user.sub)
         .bind(id)
         .execute(&state.db)
         .await;
