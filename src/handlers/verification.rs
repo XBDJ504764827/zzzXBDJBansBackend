@@ -1,5 +1,5 @@
 use axum::{
-    extract::{State, Path},
+    extract::{Extension, Path, State},
     http::StatusCode,
     Json,
 };
@@ -9,6 +9,7 @@ use std::sync::Arc;
 use sqlx::Row;
 use chrono::{DateTime, Utc};
 use utoipa::ToSchema;
+use crate::handlers::auth::Claims;
 
 #[derive(Serialize, ToSchema)]
 pub struct VerificationRecord {
@@ -46,7 +47,12 @@ pub struct UpdateVerificationRequest {
 )]
 pub async fn list_verifications(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<VerificationRecord>>, String> {
+    if claims.role != "super_admin" {
+        return Err("Access denied".to_string());
+    }
+
     let rows = sqlx::query("SELECT steam_id, status, reason, steam_level, playtime_minutes, created_at, updated_at FROM player_verifications ORDER BY created_at DESC")
         .fetch_all(&state.db)
         .await
@@ -79,8 +85,13 @@ pub async fn list_verifications(
 )]
 pub async fn create_verification(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateVerificationRequest>,
 ) -> Result<Json<VerificationRecord>, String> {
+    if claims.role != "super_admin" {
+        return Err("Access denied".to_string());
+    }
+
     let status = payload.status.unwrap_or_else(|| "pending".to_string());
     
     // Strict status validation
@@ -141,9 +152,14 @@ pub async fn create_verification(
 )]
 pub async fn update_verification(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Path(steam_id): Path<String>,
     Json(payload): Json<UpdateVerificationRequest>,
 ) -> Result<Json<VerificationRecord>, String> {
+    if claims.role != "super_admin" {
+        return Err("Access denied".to_string());
+    }
+
     if let Some(s) = &payload.status {
         if !["pending", "verified", "allowed"].contains(&s.as_str()) {
              return Err(format!("Invalid status '{}'. Allowed: pending, verified, allowed", s));
@@ -198,8 +214,13 @@ pub async fn update_verification(
 )]
 pub async fn delete_verification(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Path(steam_id): Path<String>,
 ) -> Result<StatusCode, String> {
+    if claims.role != "super_admin" {
+        return Err("Access denied".to_string());
+    }
+
     sqlx::query("DELETE FROM player_verifications WHERE steam_id = ?")
         .bind(steam_id)
         .execute(&state.db)
@@ -208,3 +229,4 @@ pub async fn delete_verification(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
