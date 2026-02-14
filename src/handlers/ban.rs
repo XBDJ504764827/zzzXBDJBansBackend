@@ -567,24 +567,30 @@ pub async fn delete_ban(
                     tokio::spawn(async move {
                         tracing::debug!("Background task: Sending unban commands to {} servers for {}", servers.len(), ban_name);
                         use crate::utils::rcon::send_command;
+                        use futures::future::join_all;
                         
-                        for server in servers {
-                            let address = format!("{}:{}", server.ip, server.port);
-                            let pwd = server.rcon_password.unwrap_or_default();
-                            
-                            // Unban SteamID
-                            if !steam_id.is_empty() {
-                                let cmd = format!("sm_unban \"{}\"", steam_id);
-                                let _ = send_command(&address, &pwd, &cmd).await;
+                        let tasks: Vec<_> = servers.into_iter().map(|server| {
+                            let steam_id = steam_id.clone();
+                            let ip = ip.clone();
+                            async move {
+                                let address = format!("{}:{}", server.ip, server.port);
+                                let pwd = server.rcon_password.unwrap_or_default();
+                                
+                                // Unban SteamID
+                                if !steam_id.is_empty() {
+                                    let cmd = format!("sm_unban \"{}\"", steam_id);
+                                    let _ = send_command(&address, &pwd, &cmd).await;
+                                }
+                                
+                                // Unban IP
+                                if !ip.is_empty() {
+                                    let cmd = format!("sm_unban \"{}\"", ip);
+                                    let _ = send_command(&address, &pwd, &cmd).await;
+                                }
                             }
-                            
-                            // Unban IP
-                            if !ip.is_empty() {
-                                let cmd = format!("sm_unban \"{}\"", ip);
-                                let _ = send_command(&address, &pwd, &cmd).await;
-                            }
-                        }
+                        }).collect();
 
+                        join_all(tasks).await;
                     });
                 }
             }

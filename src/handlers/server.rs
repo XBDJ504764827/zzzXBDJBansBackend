@@ -476,7 +476,7 @@ pub async fn ban_player(
             let mut found = None;
             for line in output.lines() {
                  if line.trim().starts_with("#") {
-                     let parts: Vec<&str> = line.split_whitespace().collect();
+                     let _parts: Vec<&str> = line.split_whitespace().collect();
                      // Parts: #, userid, slot, "Name", SteamID, ...
                      // Because Name can have spaces, splitting by whitespace is risky.
                      // But we have Regex!
