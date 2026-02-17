@@ -6,8 +6,8 @@ pub async fn establish_connection() -> MySqlPool {
     
     // Parse URL to find the database name part
     // Format: mysql://user:pass@host:port/dbname
-    let db_name = database_url.split('/').last().expect("Invalid DB URL format");
-    let server_url = database_url.get(..database_url.rfind('/').unwrap_or(database_url.len())).unwrap_or(&database_url);
+    let _db_name = database_url.split('/').last().expect("Invalid DB URL format");
+    let _server_url = database_url.get(..database_url.rfind('/').unwrap_or(database_url.len())).unwrap_or(&database_url);
 
     use sqlx::migrate::MigrateDatabase;
 

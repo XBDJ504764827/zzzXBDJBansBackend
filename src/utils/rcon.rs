@@ -212,7 +212,7 @@ pub async fn send_command(address: &str, password: &str, command: &str) -> Resul
                  // Let's just read until null.
                  
                  // Actually relying on Size is safer.
-                 let string_len = size - 8 - 1; // Exclude last null. (Body + Null) means Size covers Body+1+1. So Size-8 gives Body + 2? 
+                 let _string_len = size - 8 - 1; // Exclude last null. (Body + Null) means Size covers Body+1+1. So Size-8 gives Body + 2? 
                  // Protocol: Size, ID, Type, Body, Null, Null.
                  // Size = ID(4)+Type(4)+Body(N)+Null(1)+Null(1) = 10+N.
                  // So BodyLen = Size - 10.

@@ -53,8 +53,7 @@ REDIS_URL=redis://127.0.0.1:6379/
 RUST_LOG=info,zzzXBDJBansBackend=debug
 SERVER_HOST=0.0.0.0
 SERVER_PORT=8080
-JWT_SECRET=your_super_secret_key
-SteamAPIKey=your_steam_web_api_key
+STEAM_API_KEY=your_steam_web_api_key
 ```
 
 ### 3. 构建与运行

@@ -133,6 +133,19 @@ async fn main() {
 
     let pool = db::establish_connection().await;
 
+    // FIX: Always remove the known broken migration record to prevent VersionMismatch on different envs
+    tracing::info!("Attempting to clear specific migration records...");
+    
+    match sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 20260216190000").execute(&pool).await {
+        Ok(_) => tracing::info!("Cleared migration 20260216190000"),
+        Err(e) => tracing::warn!("Failed to clear 20260216190000: {}", e),
+    }
+    
+    match sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 20260125020000").execute(&pool).await {
+         Ok(done) => tracing::info!("Cleared dirty migration 20260125020000. Rows affected: {}", done.rows_affected()),
+         Err(e) => tracing::error!("Failed to clear dirty migration 20260125020000: {}", e),
+    }
+
     // Run migrations
     sqlx::migrate!("./migrations")
         .run(&pool)
@@ -199,6 +212,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(root))
         .route("/api/auth/login", axum::routing::post(handlers::auth::login))
+        .route("/api/auth/change-password", axum::routing::post(handlers::auth::change_password))
         // 公开路由：白名单申请（无需认证）
         .route("/api/whitelist/apply", axum::routing::post(handlers::whitelist::apply_whitelist))
         .route("/api/whitelist/public-list", get(handlers::whitelist::list_public_whitelist))
@@ -232,7 +246,7 @@ async fn ensure_super_admin(pool: &sqlx::MySqlPool) {
     if count == 0 {
         tracing::info!("No admins found. Creating default super_admin.");
         let username = "admin";
-        let password = "123"; 
+        let password = "123456"; 
         let hashed = bcrypt::hash(password, bcrypt::DEFAULT_COST).expect("Failed to hash password");
         
         let _ = sqlx::query(
@@ -244,23 +258,8 @@ async fn ensure_super_admin(pool: &sqlx::MySqlPool) {
         .await
         .expect("Failed to create default admin");
         
-        tracing::info!("Default admin created: user='admin', pass='123'");
+        tracing::info!("Default admin created: user='admin', pass='123456'");
     } else {
-        // Fix for potential bad migration data: if admin exists with placeholder password, reset it.
-        let placeholder = "$2y$10$YourHashedPasswordHereOrImplementRegister";
-        let row: Option<(i64, String)> = sqlx::query_as("SELECT id, password FROM admins WHERE username = 'admin'")
-             .fetch_optional(pool).await.unwrap_or(None);
-             
-        if let Some((id, pass)) = row {
-            if pass == placeholder {
-                 tracing::info!("Found placeholder password for 'admin'. Resetting to default.");
-                 let hashed = bcrypt::hash("123", bcrypt::DEFAULT_COST).unwrap();
-                 let _ = sqlx::query("UPDATE admins SET password = ? WHERE id = ?")
-                    .bind(hashed)
-                    .bind(id)
-                    .execute(pool).await;
-                 tracing::info!("Admin password reset to '123'");
-            }
-        }
+        tracing::info!("Super admin exists. Skipping creation.");
     }
 }

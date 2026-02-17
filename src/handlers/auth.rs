@@ -33,7 +33,7 @@ pub async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> impl IntoResponse {
     let row = sqlx::query_as::<_, crate::models::user::Admin>("SELECT * FROM admins WHERE username = ?")
-        .bind(payload.username)
+        .bind(&payload.username)
         .fetch_optional(&state.db)
         .await;
 
@@ -46,9 +46,9 @@ pub async fn login(
             // We should use bcrypt::verify.
             
             let valid = verify(&payload.password, &user.password).unwrap_or(false);
-            // Fallback for simple testing if needed: || user.password == payload.password
             
             if valid {
+                tracing::info!("Login successful for user: {}", user.username);
                 // Generate JWT
                 let expiration = chrono::Utc::now()
                     .checked_add_signed(chrono::Duration::days(1))
@@ -64,13 +64,17 @@ pub async fn login(
                 let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "secret".to_string());
                 let token = encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_ref())).unwrap();
 
-                // Log login? (Optional, requires log handler integration)
-                
                 return (StatusCode::OK, Json(json!({ "token": token, "user": { "username": user.username, "role": user.role } }))).into_response();
+            } else {
+                tracing::warn!("Login failed for user: {} (Invalid password)", payload.username);
             }
         }
-        Ok(None) => {}
-        Err(_) => {}
+        Ok(None) => {
+            tracing::warn!("Login failed: User '{}' not found", payload.username);
+        }
+        Err(e) => {
+            tracing::error!("Database error during login for user '{}': {}", payload.username, e);
+        }
     }
 
     (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Invalid credentials" }))).into_response()
