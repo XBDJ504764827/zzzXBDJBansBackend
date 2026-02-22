@@ -140,7 +140,20 @@ async fn main() {
         Ok(_) => tracing::info!("Cleared migration 20260216190000"),
         Err(e) => tracing::warn!("Failed to clear 20260216190000: {}", e),
     }
+
+    // Force re-run init migration if admins table is missing
+    let table_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'admins' AND TABLE_SCHEMA = DATABASE()")
+        .fetch_one(&pool).await.unwrap_or((0,));
+    if table_exists.0 == 0 {
+        tracing::info!("'admins' table missing, forcing re-run of init migration...");
+        let _ = sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 20260125000000").execute(&pool).await;
+    }
     
+    match sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 20260217130000").execute(&pool).await {
+         Ok(_) => tracing::info!("Cleared dirty migration 20260217130000"),
+         Err(e) => tracing::warn!("Failed to clear 20260217130000: {}", e),
+    }
+
     match sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 20260125020000").execute(&pool).await {
          Ok(done) => tracing::info!("Cleared dirty migration 20260125020000. Rows affected: {}", done.rows_affected()),
          Err(e) => tracing::error!("Failed to clear dirty migration 20260125020000: {}", e),
